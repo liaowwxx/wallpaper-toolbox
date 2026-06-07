@@ -1,0 +1,27 @@
+# SwiftPM
+.build/
+.swiftpm/
+Package.resolved
+
+# Xcode
+*.xcuserdata/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+*.xcodeproj/
+
+# macOS
+.DS_Store
+*.app
+*.dmg
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Bundled external binaries (RePKG CLI + .NET runtime, WallpaperPlayer).
+# These are obtained from external sources and are large — track separately
+# or use the build script to bundle them.
+resources/osx-arm64/
+resources/bin/
