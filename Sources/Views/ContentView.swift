@@ -84,12 +84,12 @@ private struct WorkspaceSection: View {
                     Text(dir.lastPathComponent)
                         .font(.caption).fontWeight(.medium)
                     Text(dir.path)
-                        .font(.caption2).foregroundColor(.secondary)
+                        .font(.caption2).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.middle)
                 }
                 .padding(.vertical, 2)
 
-                Picker("Mode", selection: Binding(get: { viewModel.scanMode }, set: { viewModel.scanMode = $0 })) {
+                Picker("Scan Mode", selection: Binding(get: { viewModel.scanMode }, set: { viewModel.scanMode = $0 })) {
                     ForEach(ScanMode.allCases, id: \.self) { mode in
                         Label(mode.label, systemImage: mode == .subdir ? "folder" : "doc").tag(mode)
                     }
@@ -122,7 +122,7 @@ private struct DirectoriesSection: View {
     var body: some View {
         Section("Directories") {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Output").font(.caption).foregroundColor(.secondary)
+                Text("Output").font(.caption).foregroundStyle(.secondary)
                 if let out = viewModel.outputDirectory {
                     Text(out.path)
                         .font(.caption2).lineLimit(1).truncationMode(.middle)
@@ -136,7 +136,7 @@ private struct DirectoriesSection: View {
             .padding(.vertical, 2)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("RePKG Binary").font(.caption).foregroundColor(.secondary)
+                Text("RePKG Binary").font(.caption).foregroundStyle(.secondary)
                 TextField("Path", text: $repkgPath)
                     .font(.caption)
                     .textFieldStyle(.roundedBorder)
@@ -154,7 +154,7 @@ private struct DirectoriesSection: View {
                     }
                     .font(.caption2)
                     Text("Default: resources/osx-arm64/RePKG")
-                        .font(.caption2).foregroundColor(.secondary)
+                        .font(.caption2).foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             }
@@ -170,9 +170,12 @@ private struct FiltersSection: View {
     var body: some View {
         Group {
             Section("Type") {
-                Picker("", selection: Binding(
+                Picker("Filter by type", selection: Binding(
                     get: { viewModel.typeFilter ?? "All" },
-                    set: { viewModel.typeFilter = $0 == "All" ? nil : $0 }
+                    set: {
+                        viewModel.typeFilter = $0 == "All" ? nil : $0
+                        viewModel.notifyFilterChanged()
+                    }
                 )) {
                     Label("All", systemImage: "square.grid.2x2").tag("All")
                     Label("Video", systemImage: "film").tag("video")
@@ -184,7 +187,7 @@ private struct FiltersSection: View {
             }
 
             Section("Rating") {
-                Picker("", selection: ratingBinding) {
+                Picker("Filter by rating", selection: ratingBinding) {
                     Label("All", systemImage: "square.grid.2x2").tag("All")
                     Label("Everyone", systemImage: "person.2").tag("Everyone")
                     Label("Questionable", systemImage: "exclamationmark.triangle").tag("Questionable")
@@ -196,6 +199,7 @@ private struct FiltersSection: View {
                 Button("Cancel", role: .cancel) { }
                 Button("Show Mature Content") {
                     viewModel.contentRatingFilter = "Mature"
+                    viewModel.notifyFilterChanged()
                 }
             } message: {
                 Text("This will display content marked as Mature. Are you sure?")
@@ -203,9 +207,12 @@ private struct FiltersSection: View {
 
             if !viewModel.allCollections.isEmpty {
                 Section("Collections") {
-                    Picker("", selection: Binding(
+                    Picker("Filter by collection", selection: Binding(
                         get: { viewModel.collectionFilter ?? "All" },
-                        set: { viewModel.collectionFilter = $0 == "All" ? nil : $0 }
+                        set: {
+                            viewModel.collectionFilter = $0 == "All" ? nil : $0
+                            viewModel.notifyFilterChanged()
+                        }
                     )) {
                         Label("All", systemImage: "square.grid.2x2").tag("All")
                         ForEach(viewModel.allCollections, id: \.self) { collection in
@@ -226,6 +233,7 @@ private struct FiltersSection: View {
                     showMatureWarning = true
                 } else {
                     viewModel.contentRatingFilter = newValue == "All" ? nil : newValue
+                    viewModel.notifyFilterChanged()
                 }
             }
         )
@@ -278,11 +286,11 @@ private struct StatusSection: View {
                 Text("\(viewModel.wallpapers.count) wallpapers").font(.caption)
                 if viewModel.selectedIDs.count > 0 {
                     Text("\(viewModel.selectedIDs.count) selected")
-                        .font(.caption).foregroundColor(.accentColor)
+                        .font(.caption).foregroundStyle(.tint)
                 }
                 if !viewModel.statusText.isEmpty {
                     Text(viewModel.statusText)
-                        .font(.caption).foregroundColor(.secondary).lineLimit(2)
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 }
             }
         }
@@ -297,7 +305,7 @@ private struct BatchActionBar: View {
     var body: some View {
         HStack(spacing: 12) {
             Text("\(viewModel.selectedIDs.count) selected")
-                .font(.subheadline).fontWeight(.medium).foregroundColor(.accentColor)
+                .font(.subheadline).fontWeight(.medium).foregroundStyle(.tint)
             Button("Deselect") { viewModel.deselectAll() }.font(.caption)
             Divider().frame(height: 16)
 
@@ -327,7 +335,7 @@ private struct BatchActionBar: View {
             .font(.caption).disabled(viewModel.selectedIDs.isEmpty)
 
             Button("Delete") { viewModel.batchDeleteWallpapers() }
-                .font(.caption).foregroundColor(.red)
+                .font(.caption).foregroundStyle(.red)
             Spacer()
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
@@ -343,11 +351,11 @@ private struct EmptyGalleryView: View {
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: "photo.on.rectangle.angled")
-                .font(.system(size: 48)).foregroundColor(.secondary)
+                .font(.system(size: 48)).foregroundStyle(.secondary)
             Text("No wallpapers loaded")
-                .font(.title2).foregroundColor(.secondary)
+                .font(.title2).foregroundStyle(.secondary)
             Text("Open a directory containing Wallpaper Engine wallpapers")
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
             Button("Open Directory") { viewModel.selectDirectory() }
                 .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
         }

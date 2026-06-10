@@ -17,6 +17,9 @@ final class AppViewModel {
     var collectionFilter: String? = nil
     var statusText = "Ready"
 
+    /// Bumped whenever filters or search change, providing animation context for ForEach transitions.
+    @ObservationIgnored var filterGeneration = 0
+
     var isExtracting = false
     var extractionOutput = ""
     var showExtractSheet = false
@@ -118,8 +121,11 @@ final class AppViewModel {
     @ObservationIgnored private var searchDebounceTask: Task<Void, Never>?
     private var debouncedSearchText = ""
 
+    /// Generation counter bumped on every wallpaper mutation that affects filtering.
+    @ObservationIgnored private var _wallpaperGeneration: Int = 0
+
     @ObservationIgnored private var _cachedFilters: (
-        wallpapersHash: Int,
+        wallpaperGeneration: Int,
         searchText: String,
         typeFilter: String?,
         contentRatingFilter: String?,
@@ -127,17 +133,24 @@ final class AppViewModel {
         result: [WallpaperItem]
     )?
 
+    @ObservationIgnored private var _cachedCollections: (generation: Int, result: [String])?
+
     var allCollections: [String] {
+        if let cache = _cachedCollections, cache.generation == _wallpaperGeneration {
+            return cache.result
+        }
         var set = Set<String>()
         for wp in wallpapers {
             for c in wp.collections { set.insert(c) }
         }
-        return set.sorted()
+        let result = set.sorted()
+        _cachedCollections = (_wallpaperGeneration, result)
+        return result
     }
 
     var filteredWallpapers: [WallpaperItem] {
         if let cache = _cachedFilters,
-           cache.wallpapersHash == wallpapers.hashValue,
+           cache.wallpaperGeneration == _wallpaperGeneration,
            cache.searchText == debouncedSearchText,
            cache.typeFilter == typeFilter,
            cache.contentRatingFilter == contentRatingFilter,
@@ -161,7 +174,7 @@ final class AppViewModel {
         if let collection = collectionFilter {
             result = result.filter { $0.collections.contains(collection) }
         }
-        _cachedFilters = (wallpapers.hashValue, debouncedSearchText, typeFilter, contentRatingFilter, collectionFilter, result)
+        _cachedFilters = (_wallpaperGeneration, debouncedSearchText, typeFilter, contentRatingFilter, collectionFilter, result)
         return result
     }
 
@@ -223,6 +236,7 @@ final class AppViewModel {
 
         let items = await scanner.scan(directory: dir, mode: scanMode)
         wallpapers = items
+        _wallpaperGeneration += 1
         isScanning = false
         statusText = "\(items.count) wallpapers found"
 
@@ -230,6 +244,11 @@ final class AppViewModel {
         Task.detached(priority: .background) {
             await ThumbnailView.preloadBatch(urls: preloadURLs)
         }
+    }
+
+    /// Call when user changes a filter, so animated ForEach transitions get context.
+    func notifyFilterChanged() {
+        filterGeneration &+= 1
     }
 
     // MARK: - Selection
@@ -256,6 +275,7 @@ final class AppViewModel {
     func setContentRating(_ item: WallpaperItem, rating: String) {
         guard let idx = wallpapers.firstIndex(where: { $0.id == item.id }) else { return }
         wallpapers[idx].contentRating = rating
+        _wallpaperGeneration += 1
         metadataService.saveMetadata(for: wallpapers[idx], mode: scanMode, flatRoot: selectedDirectory)
         statusText = "Content rating updated"
     }
@@ -266,6 +286,7 @@ final class AppViewModel {
         guard let idx = wallpapers.firstIndex(where: { $0.id == item.id }) else { return }
         if !wallpapers[idx].collections.contains(collection) {
             wallpapers[idx].collections.append(collection)
+            _wallpaperGeneration += 1
             metadataService.saveMetadata(for: wallpapers[idx], mode: scanMode, flatRoot: selectedDirectory)
             statusText = "Added to '\(collection)'"
         }
@@ -274,6 +295,7 @@ final class AppViewModel {
     func removeFromCollection(_ item: WallpaperItem, collection: String) {
         guard let idx = wallpapers.firstIndex(where: { $0.id == item.id }) else { return }
         wallpapers[idx].collections.removeAll { $0 == collection }
+        _wallpaperGeneration += 1
         metadataService.saveMetadata(for: wallpapers[idx], mode: scanMode, flatRoot: selectedDirectory)
         statusText = "Removed from '\(collection)'"
     }
@@ -289,6 +311,7 @@ final class AppViewModel {
                 }
             }
         }
+        _wallpaperGeneration += 1
         for item in wallpapers where selectedIDs.contains(item.id) {
             metadataService.saveMetadata(for: item, mode: scanMode, flatRoot: selectedDirectory)
         }
@@ -308,6 +331,7 @@ final class AppViewModel {
                 affected.append(wallpapers[idx])
             }
         }
+        if !affected.isEmpty { _wallpaperGeneration += 1 }
         for item in affected {
             metadataService.saveMetadata(for: item, mode: scanMode, flatRoot: selectedDirectory)
         }
@@ -325,6 +349,7 @@ final class AppViewModel {
                 affected.append(wallpapers[idx])
             }
         }
+        if !affected.isEmpty { _wallpaperGeneration += 1 }
         for item in affected {
             metadataService.saveMetadata(for: item, mode: scanMode, flatRoot: selectedDirectory)
         }
@@ -342,6 +367,7 @@ final class AppViewModel {
                 affected.append(wallpapers[idx])
             }
         }
+        if !affected.isEmpty { _wallpaperGeneration += 1 }
         for item in affected {
             metadataService.saveMetadata(for: item, mode: scanMode, flatRoot: selectedDirectory)
         }
@@ -355,6 +381,7 @@ final class AppViewModel {
             try FileManager.default.removeItem(at: item.path)
             wallpapers.removeAll { $0.id == item.id }
             selectedIDs.remove(item.id)
+            _wallpaperGeneration += 1
 
             if scanMode == .flat, let root = selectedDirectory {
                 var meta = metadataService.readFlatMeta(root: root)
@@ -387,6 +414,7 @@ final class AppViewModel {
             metadataService.writeFlatMeta(meta, root: root)
         }
         let deleted = toDelete.count - failed
+        if deleted > 0 { _wallpaperGeneration += 1 }
         statusText = failed > 0
             ? "Deleted \(deleted) wallpapers (\(failed) failed)"
             : "Deleted \(deleted) wallpapers"
@@ -766,6 +794,7 @@ final class AppViewModel {
             try? await Task.sleep(for: .milliseconds(150))
             guard !Task.isCancelled, let self else { return }
             debouncedSearchText = text
+            filterGeneration &+= 1
         }
     }
 }

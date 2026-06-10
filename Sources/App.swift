@@ -30,7 +30,7 @@ struct RePKG_NativeApp: App {
                 }
         }
         .defaultSize(width: 1024, height: 700)
-        .windowResizability(.contentSize)
+        .windowResizability(.contentMinSize)
         .windowStyle(.automatic)
         .windowToolbarStyle(.unified)
         .commands {

@@ -5,12 +5,15 @@ import SwiftUI
 struct SettingsView: View {
     var body: some View {
         TabView {
-            GeneralTab()
-                .tabItem { Label("General", systemImage: "gear") }
-            WallpaperTab()
-                .tabItem { Label("Wallpaper", systemImage: "display") }
-            AdvancedTab()
-                .tabItem { Label("Advanced", systemImage: "ellipsis.curlybraces") }
+            Tab("General", systemImage: "gearshape") {
+                GeneralTab()
+            }
+            Tab("Wallpaper", systemImage: "display") {
+                WallpaperTab()
+            }
+            Tab("Advanced", systemImage: "ellipsis.curlybraces") {
+                AdvancedTab()
+            }
         }
         .scenePadding()
         .frame(width: 450, height: 300)

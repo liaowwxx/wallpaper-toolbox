@@ -36,7 +36,7 @@ struct ThumbnailView: View {
                     Rectangle().fill(.quaternary)
                     Image(systemName: fallbackIcon)
                         .font(.largeTitle)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
             }
         }

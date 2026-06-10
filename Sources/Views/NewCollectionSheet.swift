@@ -9,7 +9,7 @@ struct NewCollectionSheet: View {
         VStack(spacing: 24) {
             Image(systemName: "folder.badge.plus")
                 .font(.system(size: 28))
-                .foregroundColor(.accentColor)
+                .foregroundStyle(.tint)
 
             Text("New Collection")
                 .font(.headline)

@@ -4,13 +4,14 @@ import AVKit
 // MARK: - Per-video player state
 
 @MainActor
-final class VideoPlayerState: ObservableObject {
+@Observable
+final class VideoPlayerState {
     let player: AVPlayer
-    @Published var currentTime: Double = 0
-    @Published var duration: Double = 0
-    @Published var isReady = false
+    var currentTime: Double = 0
+    var duration: Double = 0
+    var isReady = false
 
-    private var timeObserver: Any?
+    @ObservationIgnored private var timeObserver: Any?
 
     init(url: URL) {
         let asset = AVURLAsset(url: url)
@@ -61,7 +62,7 @@ struct AssetPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var hoveredAsset: AssetFile.ID?
     @State private var expandedVideo: AssetFile.ID?
-    @StateObject private var playerState = VideoPlayerStateHolder()
+    @State private var playerState = VideoPlayerStateHolder()
 
     private let videoSize = CGSize(width: 260, height: 146)
 
@@ -74,7 +75,7 @@ struct AssetPickerSheet: View {
                         .fontWeight(.semibold)
                     Text(item.title)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button("Cancel") { dismiss() }
@@ -88,12 +89,12 @@ struct AssetPickerSheet: View {
                 VStack(spacing: 12) {
                     Image(systemName: "questionmark.folder")
                         .font(.system(size: 36))
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     Text("No media files found")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     Text("Extract the wallpaper first to find video/image files.")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
                 Spacer()
             } else {
@@ -115,7 +116,7 @@ struct AssetPickerSheet: View {
 
             HStack {
                 Text("\(assets.count) files found")
-                    .font(.caption).foregroundColor(.secondary)
+                    .font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Cancel") { dismiss() }
             }
@@ -140,7 +141,7 @@ struct AssetPickerSheet: View {
                         ZStack {
                             RoundedRectangle(cornerRadius: 6)
                                 .fill(Color.blue.opacity(0.12))
-                            Image(systemName: "photo").foregroundColor(.blue)
+                            Image(systemName: "photo").foregroundStyle(.blue)
                         }
                     }
                 }
@@ -153,7 +154,7 @@ struct AssetPickerSheet: View {
 
                 if hoveredAsset == asset.id {
                     Image(systemName: "arrow.right.circle.fill")
-                        .font(.title2).foregroundColor(.accentColor)
+                        .font(.title2).foregroundStyle(.tint)
                         .transition(.scale.combined(with: .opacity))
                 }
             }
@@ -169,9 +170,7 @@ struct AssetPickerSheet: View {
         .accessibilityHint("Double-tap to set as wallpaper")
         .animation(.easeInOut(duration: 0.15), value: hoveredAsset)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) {
-                hoveredAsset = hovering ? asset.id : nil
-            }
+            hoveredAsset = hovering ? asset.id : nil
         }
     }
 
@@ -198,7 +197,7 @@ struct AssetPickerSheet: View {
                     Spacer()
 
                     Image(systemName: isExpanded ? "chevron.up.circle.fill" : "play.circle.fill")
-                        .font(.title2).foregroundColor(.accentColor)
+                        .font(.title2).foregroundStyle(.tint)
                 }
                 .padding(.horizontal, 16).padding(.vertical, 10)
                 .contentShape(Rectangle())
@@ -226,7 +225,7 @@ struct AssetPickerSheet: View {
                         ProgressView().scaleEffect(0.5)
                     } else {
                         Image(systemName: "play.rectangle")
-                            .font(.title).foregroundColor(.purple)
+                            .font(.title).foregroundStyle(.purple)
                     }
                 }
             }
@@ -234,59 +233,19 @@ struct AssetPickerSheet: View {
     }
 
     private func videoPlayerPanel(_ asset: AssetFile, state: VideoPlayerState) -> some View {
-        VStack(spacing: 10) {
-            PlayerPreview(player: state.player)
-                .frame(width: videoSize.width, height: videoSize.height)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-
-            if state.duration > 0 {
-                Slider(value: Binding(
-                    get: { state.currentTime },
-                    set: { state.seek(to: $0) }
-                ), in: 0...state.duration) { editing in
-                    if editing {
-                        state.pause()
-                    } else {
-                        state.resume()
+        VideoPlayerPanelView(
+            state: state,
+            asset: asset,
+            videoSize: videoSize,
+            onSetWallpaper: { viewModel.finishWallpaperSelection(asset); dismiss() },
+            onSetFrame: { time in
+                Task {
+                    if let frameURL = await WallpaperService.captureFrame(videoURL: asset.url, at: time) {
+                        viewModel.applyStaticWallpaper(frameURL, assetName: asset.name)
                     }
                 }
-                .padding(.horizontal, 4)
-
-                HStack {
-                    Text(timeString(state.currentTime))
-                        .font(.caption2).foregroundColor(.secondary)
-                    Spacer()
-                    Text(timeString(state.duration))
-                        .font(.caption2).foregroundColor(.secondary)
-                }
-                .padding(.horizontal, 4)
-            } else {
-                ProgressView("Loading...").scaleEffect(0.7)
             }
-
-            HStack(spacing: 16) {
-                Button {
-                    viewModel.finishWallpaperSelection(asset)
-                    dismiss()
-                } label: {
-                    Label("Set as Wallpaper", systemImage: "display").font(.caption)
-                }
-
-                Button {
-                    let time = CMTime(seconds: state.currentTime, preferredTimescale: 600)
-                    Task {
-                        if let frameURL = await WallpaperService.captureFrame(videoURL: asset.url, at: time) {
-                            viewModel.applyStaticWallpaper(frameURL, assetName: asset.name)
-                        }
-                    }
-                } label: {
-                    Label("Set Frame", systemImage: "camera.viewfinder").font(.caption)
-                }
-                .disabled(state.duration <= 0)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 12)
+        )
     }
 
     // MARK: - Shared
@@ -298,26 +257,22 @@ struct AssetPickerSheet: View {
                 .lineLimit(1).truncationMode(.middle)
             HStack(spacing: 8) {
                 Label(asset.formattedSize, systemImage: "arrow.down.doc")
-                    .font(.caption).foregroundColor(.secondary)
+                    .font(.caption).foregroundStyle(.secondary)
                 Label(asset.isVideo ? "Video" : "Image", systemImage: asset.icon)
                     .font(.caption)
-                    .foregroundColor(asset.isVideo ? .purple : .blue)
+                    .foregroundStyle(asset.isVideo ? .purple : .blue)
             }
         }
     }
 
-    private func timeString(_ seconds: Double) -> String {
-        let m = Int(seconds) / 60
-        let s = Int(seconds) % 60
-        return String(format: "%d:%02d", m, s)
-    }
 }
 
 // MARK: - Player State Holder (triggers SwiftUI updates)
 
 @MainActor
-final class VideoPlayerStateHolder: ObservableObject {
-    @Published var state: VideoPlayerState?
+@Observable
+final class VideoPlayerStateHolder {
+    var state: VideoPlayerState?
 
     func load(url: URL) {
         state?.player.pause()
@@ -327,6 +282,67 @@ final class VideoPlayerStateHolder: ObservableObject {
     func clear() {
         state?.player.pause()
         state = nil
+    }
+}
+
+// MARK: - Video Player Panel (extracted subview for efficient diffing)
+
+private struct VideoPlayerPanelView: View {
+    @Bindable var state: VideoPlayerState
+    let asset: AssetFile
+    let videoSize: CGSize
+    let onSetWallpaper: () -> Void
+    let onSetFrame: (CMTime) -> Void
+
+    var body: some View {
+        VStack(spacing: 10) {
+            PlayerPreview(player: state.player)
+                .frame(width: videoSize.width, height: videoSize.height)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            if state.duration > 0 {
+                Slider(value: $state.currentTime, in: 0...state.duration) { editing in
+                    if editing {
+                        state.pause()
+                    } else {
+                        state.resume()
+                    }
+                }
+                .padding(.horizontal, 4)
+
+                HStack {
+                    Text(formatTime(state.currentTime))
+                        .font(.caption2).foregroundStyle(.secondary)
+                    Spacer()
+                    Text(formatTime(state.duration))
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 4)
+            } else {
+                ProgressView("Loading...").scaleEffect(0.7)
+            }
+
+            HStack(spacing: 16) {
+                Button(action: onSetWallpaper) {
+                    Label("Set as Wallpaper", systemImage: "display").font(.caption)
+                }
+
+                Button {
+                    onSetFrame(CMTime(seconds: state.currentTime, preferredTimescale: 600))
+                } label: {
+                    Label("Set Frame", systemImage: "camera.viewfinder").font(.caption)
+                }
+                .disabled(state.duration <= 0)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 12)
+    }
+
+    private func formatTime(_ seconds: Double) -> String {
+        let m = Int(seconds) / 60
+        let s = Int(seconds) % 60
+        return String(format: "%d:%02d", m, s)
     }
 }
 

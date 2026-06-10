@@ -24,6 +24,7 @@ struct GalleryView: View {
                 }
             }
             .padding(12)
+            .animation(.spring(response: 0.35, dampingFraction: 0.75), value: viewModel.filterGeneration)
         }
     }
 }
@@ -94,7 +95,7 @@ private struct WallpaperCardInternal: View {
                 ZStack {
                     Rectangle().fill(.quaternary)
                     Image(systemName: item.typeIcon)
-                        .font(.largeTitle).foregroundColor(.secondary)
+                        .font(.largeTitle).foregroundStyle(.secondary)
                 }
             }
         }
@@ -103,7 +104,7 @@ private struct WallpaperCardInternal: View {
     private var infoOverlay: some View {
         Text(item.title)
             .font(.caption).fontWeight(.medium)
-            .foregroundColor(.white)
+            .foregroundStyle(.white)
             .lineLimit(2).multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 8)
@@ -120,7 +121,7 @@ private struct WallpaperCardInternal: View {
     private var typeBadge: some View {
         Text(item.typeLabel)
             .font(.caption2).fontWeight(.semibold)
-            .foregroundColor(.white)
+            .foregroundStyle(.white)
             .padding(.horizontal, 6).padding(.vertical, 3)
             .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 5))
             .padding(5)
@@ -131,11 +132,11 @@ private struct WallpaperCardInternal: View {
         HStack(spacing: 4) {
             if item.isExtracted {
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.caption).foregroundColor(.green)
+                    .font(.caption).foregroundStyle(.green)
             }
             if item.pkgPath != nil {
                 Image(systemName: "shippingbox.fill")
-                    .font(.caption).foregroundColor(.orange)
+                    .font(.caption).foregroundStyle(.orange)
             }
         }
         .padding(4)
@@ -146,7 +147,8 @@ private struct WallpaperCardInternal: View {
     @ViewBuilder
     private var selectionBorder: some View {
         RoundedRectangle(cornerRadius: 10)
-            .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2.5)
+            .stroke(.tint, lineWidth: 2.5)
+            .opacity(isSelected ? 1 : 0)
     }
 
     @ViewBuilder
@@ -157,7 +159,7 @@ private struct WallpaperCardInternal: View {
                     Spacer()
                     Image(systemName: "checkmark.circle.fill")
                         .font(.title3)
-                        .foregroundColor(.accentColor)
+                        .foregroundStyle(.tint)
                         .background(Circle().fill(.white).frame(width: 20, height: 20))
                         .scaleEffect(isSelected ? 1.0 : 0.5)
                         .padding(8)

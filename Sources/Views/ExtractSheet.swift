@@ -9,7 +9,7 @@ struct ExtractSheet: View {
             HStack {
                 Image(systemName: "shippingbox")
                     .font(.title3)
-                    .foregroundColor(.accentColor)
+                    .foregroundStyle(.tint)
                 Text("Extract Wallpapers")
                     .font(.title2)
                     .fontWeight(.semibold)
@@ -66,7 +66,7 @@ struct ExtractSheet: View {
         VStack(spacing: 8) {
             HStack {
                 Image(systemName: "checkmark.rectangle")
-                    .foregroundColor(.accentColor)
+                    .foregroundStyle(.tint)
                 Text("\(viewModel.selectedIDs.count) wallpapers selected")
                     .fontWeight(.medium)
             }
@@ -75,7 +75,7 @@ struct ExtractSheet: View {
             if let dir = viewModel.selectedDirectory {
                 HStack {
                     Image(systemName: "folder")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     Text("Input: \(dir.path)")
                         .font(.caption)
                         .lineLimit(1)
@@ -98,7 +98,7 @@ struct ExtractSheet: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                 } else {
-                    Text("Not set").foregroundColor(.secondary)
+                    Text("Not set").foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button("Choose...") {
@@ -106,7 +106,7 @@ struct ExtractSheet: View {
                 }
             }
             .padding(10)
-            .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 8))
         }
     }
 
@@ -163,12 +163,13 @@ struct ExtractSheet: View {
             ScrollView {
                 Text(viewModel.extractionOutput.isEmpty ? "Ready..." : viewModel.extractionOutput)
                     .font(.system(.caption, design: .monospaced))
-                    .foregroundColor(viewModel.extractionOutput.isEmpty ? .secondary : .primary)
+                    .foregroundStyle(viewModel.extractionOutput.isEmpty ? .secondary : .primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(height: 200)
             .padding(8)
-            .background(Color(nsColor: .textBackgroundColor))
+            .background(.regularMaterial)
+            .compositingGroup()
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
