@@ -133,14 +133,14 @@ struct ExtractSheet: View {
             Toggle("Debug info (-d)", isOn: Binding(
                 get: { viewModel.debugInfo }, set: { viewModel.debugInfo = $0 }))
             Toggle("Convert TEX (-t)", isOn: Binding(
-                get: { viewModel.convertTex }, set: { viewModel.convertTex = $0 }))
+                get: { viewModel.convertTEX }, set: { viewModel.convertTEX = $0 }))
             Toggle("No TEX convert", isOn: Binding(
-                get: { viewModel.noTexConvert }, set: { viewModel.noTexConvert = $0 }))
+                get: { viewModel.noTEXConvert }, set: { viewModel.noTEXConvert = $0 }))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("Ignore extensions (-i):").font(.caption)
                 TextField("e.g. .png,.jpg", text: Binding(
-                    get: { viewModel.ignoreExts }, set: { viewModel.ignoreExts = $0 }))
+                    get: { viewModel.ignoreExtensions }, set: { viewModel.ignoreExtensions = $0 }))
                     .textFieldStyle(.roundedBorder)
                     .accessibilityLabel("Ignore extensions")
             }
@@ -148,7 +148,7 @@ struct ExtractSheet: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Only extensions (-e):").font(.caption)
                 TextField("e.g. .png,.jpg", text: Binding(
-                    get: { viewModel.onlyExts }, set: { viewModel.onlyExts = $0 }))
+                    get: { viewModel.onlyExtensions }, set: { viewModel.onlyExtensions = $0 }))
                     .textFieldStyle(.roundedBorder)
                     .accessibilityLabel("Only extensions")
             }

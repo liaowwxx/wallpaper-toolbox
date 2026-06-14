@@ -24,7 +24,7 @@ final class VideoPlayerState {
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             guard let self else { return }
             let sec = CMTimeGetSeconds(time)
-            DispatchQueue.main.async {
+            MainActor.assumeIsolated {
                 self.currentTime = sec
                 if !self.isReady { self.isReady = true }
                 if self.duration <= 0, let item = self.player.currentItem,
@@ -123,6 +123,9 @@ struct AssetPickerSheet: View {
             .padding()
         }
         .frame(minWidth: 540, idealWidth: 620, minHeight: 400, idealHeight: 550)
+        .onDisappear {
+            playerState.clear()
+        }
     }
 
     // MARK: - Image Asset

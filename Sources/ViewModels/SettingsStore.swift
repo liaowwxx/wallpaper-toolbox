@@ -1,10 +1,11 @@
 import Foundation
-import SwiftUI
 
-/// Persistent settings wrapper (not @Observable).
-/// Settings are read/written to UserDefaults directly.
-/// The AppViewModel (which is @Observable) owns the reactive bridge
-/// via its computed settings properties that delegate here.
+/// Reactive, persistent settings store.
+/// All settings read/write directly to UserDefaults.
+/// Injected via `.environment()` so both the main window and the Settings scene
+/// stay in sync through SwiftUI's observation.
+@Observable
+@MainActor
 final class SettingsStore {
     private let defaults = UserDefaults.standard
 
@@ -12,95 +13,95 @@ final class SettingsStore {
 
     var scanMode: ScanMode {
         get {
-            let raw = defaults.string(forKey: "scanMode") ?? ScanMode.subdir.rawValue
+            let raw = defaults.string(forKey: UserDefaultsKey.scanMode) ?? ScanMode.subdir.rawValue
             return ScanMode(rawValue: raw) ?? .subdir
         }
-        set { defaults.set(newValue.rawValue, forKey: "scanMode") }
+        set { defaults.set(newValue.rawValue, forKey: UserDefaultsKey.scanMode) }
     }
 
     var restoreLastWallpaper: Bool {
-        get { defaults.bool(forKey: "restoreLastWallpaper") }
-        set { defaults.set(newValue, forKey: "restoreLastWallpaper") }
+        get { defaults.bool(forKey: UserDefaultsKey.restoreLastWallpaper) }
+        set { defaults.set(newValue, forKey: UserDefaultsKey.restoreLastWallpaper) }
     }
 
     var autoReplaceStaticWithFirstFrame: Bool {
-        get { defaults.bool(forKey: "autoReplaceStatic") }
-        set { defaults.set(newValue, forKey: "autoReplaceStatic") }
+        get { defaults.bool(forKey: UserDefaultsKey.autoReplaceStatic) }
+        set { defaults.set(newValue, forKey: UserDefaultsKey.autoReplaceStatic) }
     }
 
     // MARK: - Wallpaper
 
     var wallpaperMuted: Bool {
-        get { defaults.object(forKey: "wallpaperMuted") == nil ? true : defaults.bool(forKey: "wallpaperMuted") }
-        set { defaults.set(newValue, forKey: "wallpaperMuted") }
+        get { defaults.object(forKey: UserDefaultsKey.wallpaperMuted) == nil ? true : defaults.bool(forKey: UserDefaultsKey.wallpaperMuted) }
+        set { defaults.set(newValue, forKey: UserDefaultsKey.wallpaperMuted) }
     }
 
     // MARK: - Output
 
     var outputDirectory: URL? {
         get {
-            guard let path = defaults.string(forKey: "outputDirectoryPath"), !path.isEmpty else {
+            guard let path = defaults.string(forKey: UserDefaultsKey.outputDirectoryPath), !path.isEmpty else {
                 return nil
             }
             return URL(fileURLWithPath: path)
         }
-        set { defaults.set(newValue?.path ?? "", forKey: "outputDirectoryPath") }
+        set { defaults.set(newValue?.path ?? "", forKey: UserDefaultsKey.outputDirectoryPath) }
     }
 
     // MARK: - Extraction defaults
 
-    var ignoreExts: String {
-        get { defaults.string(forKey: "ignoreExts") ?? "" }
-        set { defaults.set(newValue, forKey: "ignoreExts") }
+    var ignoreExtensions: String {
+        get { defaults.string(forKey: UserDefaultsKey.ignoreExts) ?? "" }
+        set { defaults.set(newValue, forKey: UserDefaultsKey.ignoreExts) }
     }
 
-    var onlyExts: String {
-        get { defaults.string(forKey: "onlyExts") ?? "" }
-        set { defaults.set(newValue, forKey: "onlyExts") }
+    var onlyExtensions: String {
+        get { defaults.string(forKey: UserDefaultsKey.onlyExts) ?? "" }
+        set { defaults.set(newValue, forKey: UserDefaultsKey.onlyExts) }
     }
 
-    var convertTex: Bool {
-        get { defaults.bool(forKey: "convertTex") }
-        set { defaults.set(newValue, forKey: "convertTex") }
+    var convertTEX: Bool {
+        get { defaults.bool(forKey: UserDefaultsKey.convertTex) }
+        set { defaults.set(newValue, forKey: UserDefaultsKey.convertTex) }
     }
 
-    var noTexConvert: Bool {
-        get { defaults.bool(forKey: "noTexConvert") }
-        set { defaults.set(newValue, forKey: "noTexConvert") }
+    var noTEXConvert: Bool {
+        get { defaults.bool(forKey: UserDefaultsKey.noTexConvert) }
+        set { defaults.set(newValue, forKey: UserDefaultsKey.noTexConvert) }
     }
 
     var singleDir: Bool {
-        get { defaults.bool(forKey: "singleDir") }
-        set { defaults.set(newValue, forKey: "singleDir") }
+        get { defaults.bool(forKey: UserDefaultsKey.singleDir) }
+        set { defaults.set(newValue, forKey: UserDefaultsKey.singleDir) }
     }
 
     var recursive: Bool {
-        get { defaults.object(forKey: "recursive") == nil ? true : defaults.bool(forKey: "recursive") }
-        set { defaults.set(newValue, forKey: "recursive") }
+        get { defaults.object(forKey: UserDefaultsKey.recursive) == nil ? true : defaults.bool(forKey: UserDefaultsKey.recursive) }
+        set { defaults.set(newValue, forKey: UserDefaultsKey.recursive) }
     }
 
     var copyProject: Bool {
-        get { defaults.bool(forKey: "copyProject") }
-        set { defaults.set(newValue, forKey: "copyProject") }
+        get { defaults.bool(forKey: UserDefaultsKey.copyProject) }
+        set { defaults.set(newValue, forKey: UserDefaultsKey.copyProject) }
     }
 
     var useName: Bool {
-        get { defaults.bool(forKey: "useName") }
-        set { defaults.set(newValue, forKey: "useName") }
+        get { defaults.bool(forKey: UserDefaultsKey.useName) }
+        set { defaults.set(newValue, forKey: UserDefaultsKey.useName) }
     }
 
     var overwrite: Bool {
-        get { defaults.bool(forKey: "overwrite") }
-        set { defaults.set(newValue, forKey: "overwrite") }
+        get { defaults.bool(forKey: UserDefaultsKey.overwrite) }
+        set { defaults.set(newValue, forKey: UserDefaultsKey.overwrite) }
     }
 
     var debugInfo: Bool {
-        get { defaults.bool(forKey: "debugInfo") }
-        set { defaults.set(newValue, forKey: "debugInfo") }
+        get { defaults.bool(forKey: UserDefaultsKey.debugInfo) }
+        set { defaults.set(newValue, forKey: UserDefaultsKey.debugInfo) }
     }
 
     var copyOnly: Bool {
-        get { defaults.bool(forKey: "copyOnly") }
-        set { defaults.set(newValue, forKey: "copyOnly") }
+        get { defaults.bool(forKey: UserDefaultsKey.copyOnly) }
+        set { defaults.set(newValue, forKey: UserDefaultsKey.copyOnly) }
     }
 }

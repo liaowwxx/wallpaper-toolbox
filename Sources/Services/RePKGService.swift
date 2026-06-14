@@ -12,7 +12,7 @@ final class RePKGService {
 
     func findExecutable() -> URL? {
         if let envPath = ProcessInfo.processInfo.environment["REPKG_PATH"] {
-            let url = resolvePath(envPath)
+            let url = PathResolver.resolve(envPath)
             if FileManager.default.fileExists(atPath: url.path) { return url }
         }
 
@@ -23,7 +23,7 @@ final class RePKGService {
             resourceURL?.appendingPathComponent("RePKG"),
             execDirURL?.appendingPathComponent("RePKG"),
             execDirURL?.appendingPathComponent("RePKG.exe"),
-            resolvePath("resources/osx-arm64/RePKG"),
+            PathResolver.resolve("resources/osx-arm64/RePKG"),
         ]
 
         for candidate in candidates {
@@ -51,12 +51,7 @@ final class RePKGService {
         return nil
     }
 
-    private func resolvePath(_ path: String) -> URL {
-        let url = URL(fileURLWithPath: path)
-        if url.isFileURL && path.hasPrefix("/") { return url.standardizedFileURL }
-        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        return URL(fileURLWithPath: path, relativeTo: cwd).standardizedFileURL
-    }
+    // resolvePath → PathResolver.resolve in PathResolver.swift
 
     func run(arguments: [String]) throws {
         guard !isRunning else { return }
@@ -190,14 +185,14 @@ final class RePKGService {
 
     // MARK: - Static
 
-    static func buildArgs(
+    static func buildArguments(
         inputPath: String,
         outputDir: String? = nil,
-        ignoreExts: String? = nil,
-        onlyExts: String? = nil,
+        ignoreExtensions: String? = nil,
+        onlyExtensions: String? = nil,
         debugInfo: Bool = false,
-        convertTex: Bool = false,
-        noTexConvert: Bool = false,
+        convertTEX: Bool = false,
+        noTEXConvert: Bool = false,
         singleDir: Bool = false,
         recursive: Bool = true,
         copyProject: Bool = false,
@@ -207,11 +202,11 @@ final class RePKGService {
         var args = ["extract"]
 
         if let out = outputDir { args += ["-o", out] }
-        if let ignore = ignoreExts, !ignore.isEmpty { args += ["-i", ignore] }
-        if let only = onlyExts, !only.isEmpty { args += ["-e", only] }
+        if let ignore = ignoreExtensions, !ignore.isEmpty { args += ["-i", ignore] }
+        if let only = onlyExtensions, !only.isEmpty { args += ["-e", only] }
         if debugInfo { args.append("-d") }
-        if convertTex { args.append("-t") }
-        if noTexConvert { args.append("--no-tex-convert") }
+        if convertTEX { args.append("-t") }
+        if noTEXConvert { args.append("--no-tex-convert") }
         if singleDir { args.append("-s") }
         if recursive { args.append("-r") }
         if copyProject { args.append("-c") }

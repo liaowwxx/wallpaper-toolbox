@@ -143,13 +143,15 @@ private struct DirectoriesSection: View {
                     .accessibilityLabel("RePKG binary path")
                 HStack {
                     Button("Browse...") {
-                        let panel = NSOpenPanel()
-                        panel.canChooseFiles = true
-                        panel.canChooseDirectories = false
-                        panel.allowsMultipleSelection = false
-                        if panel.runModal() == .OK, let url = panel.url {
-                            repkgPath = url.path
-                            setenv("REPKG_PATH", url.path, 1)
+                        Task {
+                            let panel = NSOpenPanel()
+                            panel.canChooseFiles = true
+                            panel.canChooseDirectories = false
+                            panel.allowsMultipleSelection = false
+                            if await panel.begin() == .OK, let url = panel.url {
+                                repkgPath = url.path
+                                setenv("REPKG_PATH", url.path, 1)
+                            }
                         }
                     }
                     .font(.caption2)
@@ -241,17 +243,26 @@ private struct FiltersSection: View {
 }
 
 private struct WallpaperSection: View {
-    @Environment(AppViewModel.self) private var viewModel
+    @Environment(SettingsStore.self) private var settings
 
     var body: some View {
         Section("Wallpaper") {
-            Toggle("Restore on launch", isOn: Binding(get: { viewModel.restoreLastWallpaper }, set: { viewModel.restoreLastWallpaper = $0 }))
+            Toggle("Restore on launch", isOn: Binding(
+                get: { settings.restoreLastWallpaper },
+                set: { settings.restoreLastWallpaper = $0 }
+            ))
                 .font(.caption)
                 .accessibilityHint("Automatically restore the last set wallpaper when the app launches")
-            Toggle("Mute playback", isOn: Binding(get: { viewModel.wallpaperMuted }, set: { viewModel.wallpaperMuted = $0 }))
+            Toggle("Mute playback", isOn: Binding(
+                get: { settings.wallpaperMuted },
+                set: { settings.wallpaperMuted = $0 }
+            ))
                 .font(.caption)
                 .accessibilityHint("Play video wallpapers without sound")
-            Toggle("Replace wallpaper", isOn: Binding(get: { viewModel.autoReplaceStaticWithFirstFrame }, set: { viewModel.autoReplaceStaticWithFirstFrame = $0 }))
+            Toggle("Replace wallpaper", isOn: Binding(
+                get: { settings.autoReplaceStaticWithFirstFrame },
+                set: { settings.autoReplaceStaticWithFirstFrame = $0 }
+            ))
                 .font(.caption)
                 .accessibilityHint("Capture first video frame as a static wallpaper fallback")
         }
@@ -301,6 +312,7 @@ private struct StatusSection: View {
 
 private struct BatchActionBar: View {
     @Environment(AppViewModel.self) private var viewModel
+    @State private var isConfirmingDelete = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -334,12 +346,20 @@ private struct BatchActionBar: View {
             }
             .font(.caption).disabled(viewModel.selectedIDs.isEmpty)
 
-            Button("Delete") { viewModel.batchDeleteWallpapers() }
+            Button("Delete") { isConfirmingDelete = true }
                 .font(.caption).foregroundStyle(.red)
             Spacer()
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
         .toolbarGlass().subtleShadow()
+        .confirmationDialog("Delete Selected Wallpapers?", isPresented: $isConfirmingDelete) {
+            Button("Delete", role: .destructive) {
+                viewModel.batchDeleteWallpapers()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This removes \(viewModel.selectedIDs.count) selected wallpapers from disk.")
+        }
     }
 }
 

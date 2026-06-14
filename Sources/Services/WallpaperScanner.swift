@@ -17,7 +17,8 @@ enum ScanMode: String, CaseIterable {
 final class WallpaperScanner {
     private let fileManager = FileManager.default
     private let metadataService = MetadataService.shared
-    private let thumbSize = 256
+    private let thumbnailSize = AppConstants.thumbnailSize
+    private let thumbnailGenerationLimit = 4
 
     func scan(directory: URL, mode: ScanMode) async -> [WallpaperItem] {
         switch mode {
@@ -35,10 +36,11 @@ final class WallpaperScanner {
             options: .skipsHiddenFiles
         ) else { return [] }
 
-        let tempThumbDir = root.appendingPathComponent("temp_thumb", isDirectory: true)
-        try? fileManager.createDirectory(at: tempThumbDir, withIntermediateDirectories: true)
+        let tempThumbDirectory = root.appendingPathComponent("temp_thumb", isDirectory: true)
+        try? fileManager.createDirectory(at: tempThumbDirectory, withIntermediateDirectories: true)
 
         var items: [WallpaperItem] = []
+        var thumbnailSources: [Int: URL] = [:]
 
         for entry in contents {
             let isDir = (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
@@ -50,25 +52,28 @@ final class WallpaperScanner {
             let pkg = findPKG(in: entry)
 
             if preview != nil || pkg != nil {
-                var item = WallpaperItem(directory: entry, project: projectJSON, preview: preview, pkg: pkg)
+                let item = WallpaperItem(directory: entry, project: projectJSON, preview: preview, pkg: pkg)
                 if let previewPath = preview {
-                    item.thumbnailPath = await generateThumb(for: previewPath, itemId: item.id, tempThumbDir: tempThumbDir)
+                    thumbnailSources[items.count] = previewPath
                 }
                 items.append(item)
             }
         }
 
+        await generateThumbnails(for: &items, sources: thumbnailSources, tempThumbDirectory: tempThumbDirectory)
+        removeStaleThumbnails(in: tempThumbDirectory, keeping: Set(items.map(\.id)))
+
         return items.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
     }
 
     private func scanFlat(root: URL) async -> [WallpaperItem] {
-        let assetExts = Set(["jpg", "jpeg", "png", "gif", "bmp", "webp",
+        let assetExtensions = Set(["jpg", "jpeg", "png", "gif", "bmp", "webp",
                               "mp4", "mov", "avi", "mkv", "webm", "m4v", "wmv", "flv"])
-        let imageExts = Set(["jpg", "jpeg", "png", "gif", "bmp", "webp"])
+        let imageExtensions = Set(["jpg", "jpeg", "png", "gif", "bmp", "webp"])
 
         let flatMeta = metadataService.readFlatMeta(root: root)
-        let tempThumbDir = root.appendingPathComponent("temp_thumb", isDirectory: true)
-        try? fileManager.createDirectory(at: tempThumbDir, withIntermediateDirectories: true)
+        let tempThumbDirectory = root.appendingPathComponent("temp_thumb", isDirectory: true)
+        try? fileManager.createDirectory(at: tempThumbDirectory, withIntermediateDirectories: true)
 
         var fileURLs: [URL] = []
         if let enumerator = fileManager.enumerator(
@@ -85,12 +90,13 @@ final class WallpaperScanner {
                     continue
                 }
                 let ext = fileURL.pathExtension.lowercased()
-                guard assetExts.contains(ext) else { continue }
+                guard assetExtensions.contains(ext) else { continue }
                 fileURLs.append(fileURL)
             }
         }
 
         var items: [WallpaperItem] = []
+        var thumbnailSources: [Int: URL] = [:]
         for fileURL in fileURLs {
             let ext = fileURL.pathExtension.lowercased()
             let parentDir = fileURL.deletingLastPathComponent()
@@ -109,29 +115,82 @@ final class WallpaperScanner {
             )
             item.id = itemId
             item.title = filename
-            item.type = imageExts.contains(ext) ? "image" : "video"
+            item.type = imageExtensions.contains(ext) ? "image" : "video"
+            item.metadataKey = relativePath
 
-            if let meta = flatMeta[filename] {
+            if let meta = flatMeta[relativePath] ?? flatMeta[filename] {
                 item.contentRating = meta.contentrating ?? "Everyone"
                 item.collections = meta.repkgcollection ?? []
                 item.tags = meta.tags ?? []
             }
 
-            item.thumbnailPath = await generateThumb(for: fileURL, itemId: itemId, tempThumbDir: tempThumbDir)
+            thumbnailSources[items.count] = fileURL
             items.append(item)
         }
+
+        await generateThumbnails(for: &items, sources: thumbnailSources, tempThumbDirectory: tempThumbDirectory)
+        removeStaleThumbnails(in: tempThumbDirectory, keeping: Set(items.map(\.id)))
 
         return items.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
     }
 
-    private func generateThumb(for source: URL, itemId: String, tempThumbDir: URL) async -> URL? {
-        let thumbPath = tempThumbDir.appendingPathComponent("\(itemId.sanitizedForPath).jpg")
+    private struct ThumbnailJob {
+        let index: Int
+        let source: URL
+        let itemId: String
+    }
+
+    private func generateThumbnails(
+        for items: inout [WallpaperItem],
+        sources: [Int: URL],
+        tempThumbDirectory: URL
+    ) async {
+        let jobs = sources.compactMap { index, source -> ThumbnailJob? in
+            guard items.indices.contains(index) else { return nil }
+            return ThumbnailJob(index: index, source: source, itemId: items[index].id)
+        }
+        guard !jobs.isEmpty else { return }
+
+        await withTaskGroup(of: (Int, URL?, String?).self) { group in
+            var nextJob = 0
+
+            func enqueueNextJob() {
+                guard nextJob < jobs.count else { return }
+                let job = jobs[nextJob]
+                nextJob += 1
+                group.addTask {
+                    let thumbnail = await self.generateThumbnail(
+                        for: job.source,
+                        itemId: job.itemId,
+                        tempThumbDirectory: tempThumbDirectory
+                    )
+                    return (job.index, thumbnail, self.fileFingerprint(for: job.source))
+                }
+            }
+
+            for _ in 0..<min(thumbnailGenerationLimit, jobs.count) {
+                enqueueNextJob()
+            }
+
+            while let result = await group.next() {
+                let (index, thumbnailPath, version) = result
+                if items.indices.contains(index) {
+                    items[index].thumbnailPath = thumbnailPath
+                    items[index].thumbnailVersion = version
+                }
+                enqueueNextJob()
+            }
+        }
+    }
+
+    private func generateThumbnail(for source: URL, itemId: String, tempThumbDirectory: URL) async -> URL? {
+        let thumbPath = tempThumbDirectory.appendingPathComponent("\(itemId.sanitizedForPath).jpg")
         if checkCache(source: source, thumb: thumbPath) { return thumbPath }
         let ext = source.pathExtension.lowercased()
         if ["mp4", "mov", "avi", "mkv", "webm", "m4v", "wmv", "flv"].contains(ext) {
-            return await generateVideoThumb(source: source, output: thumbPath)
+            return await generateVideoThumbnail(source: source, output: thumbPath)
         } else {
-            return await generateImageThumb(source: source, output: thumbPath)
+            return await generateImageThumbnail(source: source, output: thumbPath)
         }
     }
 
@@ -159,55 +218,53 @@ final class WallpaperScanner {
         return thumbDate > srcDate
     }
 
+    private func fileFingerprint(for url: URL) -> String? {
+        guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
+              let modified = values.contentModificationDate else { return nil }
+        let size = values.fileSize ?? 0
+        return "\(modified.timeIntervalSince1970)-\(size)"
+    }
+
+    private func removeStaleThumbnails(in directory: URL, keeping itemIDs: Set<String>) {
+        let expectedFilenames = Set(itemIDs.map { "\($0.sanitizedForPath).jpg" })
+        guard let contents = try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        for file in contents where file.pathExtension.lowercased() == "jpg" {
+            if !expectedFilenames.contains(file.lastPathComponent) {
+                try? fileManager.removeItem(at: file)
+            }
+        }
+    }
+
     // MARK: - Square crop helper
 
-    private func squareCropAndResize(_ cgImage: CGImage, targetSize: Int) -> CGImage? {
-        let w = cgImage.width
-        let h = cgImage.height
-        let side = min(w, h)
-        let x = (w - side) / 2
-        let y = (h - side) / 2
-
-        guard let cropped = cgImage.cropping(to: CGRect(x: x, y: y, width: side, height: side)) else {
-            return nil
-        }
-
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        guard let ctx = CGContext(
-            data: nil,
-            width: targetSize, height: targetSize,
-            bitsPerComponent: 8,
-            bytesPerRow: targetSize * 4,
-            space: colorSpace,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return nil }
-
-        ctx.interpolationQuality = .high
-        ctx.draw(cropped, in: CGRect(x: 0, y: 0, width: targetSize, height: targetSize))
-        return ctx.makeImage()
-    }
+    // Moved to CGImage+Thumbnail.swift as `squareCroppedAndResized(to:)`.
 
     // MARK: - Image thumbnail (CGImageSource thumbnail API, no full decode)
 
-    private func generateImageThumb(source: URL, output: URL) async -> URL? {
+    private func generateImageThumbnail(source: URL, output: URL) async -> URL? {
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceThumbnailMaxPixelSize: max(thumbSize * 2, 512),
+            kCGImageSourceThumbnailMaxPixelSize: max(AppConstants.thumbnailSize * 2, 512),
             kCGImageSourceCreateThumbnailWithTransform: true
         ]
         guard let src = CGImageSourceCreateWithURL(source as CFURL, nil),
               let cgImage = CGImageSourceCreateThumbnailAtIndex(src, 0, options as CFDictionary),
-              let squared = squareCropAndResize(cgImage, targetSize: thumbSize) else {
+              let squared = cgImage.squareCroppedAndResized(to: thumbnailSize) else {
             return nil
         }
-        return saveJPEG(cgImage: squared, to: output)
+        return squared.writeJPEG(to: output)
     }
 
     // MARK: - Video thumbnails
 
-    private func generateVideoThumb(source: URL, output: URL) async -> URL? {
+    private func generateVideoThumbnail(source: URL, output: URL) async -> URL? {
         let ext = source.pathExtension.lowercased()
-        if avSupportedExts.contains(ext) {
+        if avSupportedExtensions.contains(ext) {
             if let result = await generateWithAVFoundation(source: source, output: output) {
                 return result
             }
@@ -230,20 +287,20 @@ final class WallpaperScanner {
         return nil
     }
 
-    private let avSupportedExts: Set<String> = ["mov", "mp4", "m4v", "avi", "3gp"]
+    private let avSupportedExtensions: Set<String> = ["mov", "mp4", "m4v", "avi", "3gp"]
 
     private func generateWithAVFoundation(source: URL, output: URL) async -> URL? {
         let asset = AVURLAsset(url: source)
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
-        generator.maximumSize = CGSize(width: thumbSize, height: thumbSize)
+        generator.maximumSize = CGSize(width: thumbnailSize, height: thumbnailSize)
         generator.requestedTimeToleranceBefore = .zero
         generator.requestedTimeToleranceAfter = .zero
 
         do {
             let (cgImage, _) = try await generator.image(at: .zero)
-            guard let squared = squareCropAndResize(cgImage, targetSize: thumbSize) else { return nil }
-            return saveJPEG(cgImage: squared, to: output)
+            guard let squared = cgImage.squareCroppedAndResized(to: thumbnailSize) else { return nil }
+            return squared.writeJPEG(to: output)
         } catch {
             return nil
         }
@@ -300,7 +357,7 @@ final class WallpaperScanner {
                 continuation.resume(returning: placeholderThumb(output: output))
             }
 
-            DispatchQueue.global().asyncAfter(deadline: .now() + 10) {
+            DispatchQueue.global().asyncAfter(deadline: .now() + AppConstants.ffmpegTimeoutSeconds) {
                 lock.lock()
                 guard !resumed.value else { lock.unlock(); return }
                 lock.unlock()
@@ -314,8 +371,8 @@ final class WallpaperScanner {
     // MARK: - Placeholder
 
     private func placeholderThumb(output: URL) -> URL? {
-        let width = thumbSize
-        let height = thumbSize
+        let width = thumbnailSize
+        let height = thumbnailSize
         let bytesPerRow = width * 4
         var pixels = [UInt8](repeating: 0, count: width * height * 4)
         let cx = width / 2
@@ -341,20 +398,10 @@ final class WallpaperScanner {
             space: colorSpace,
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ), let cgImage = ctx.makeImage() else { return nil }
-        return saveJPEG(cgImage: cgImage, to: output)
+        return cgImage.writeJPEG(to: output)
     }
 
-    // MARK: - JPEG encoding (direct CGImage → JPEG, no NSImage/TIFF)
-
-    private func saveJPEG(cgImage: CGImage, to url: URL) -> URL? {
-        guard let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.jpeg" as CFString, 1, nil) else {
-            return nil
-        }
-        let opts: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: 0.75]
-        CGImageDestinationAddImage(dest, cgImage, opts as CFDictionary)
-        guard CGImageDestinationFinalize(dest) else { return nil }
-        return url
-    }
+    // MARK: - JPEG encoding (moved to CGImage+Thumbnail.swift)
 }
 
 extension String {

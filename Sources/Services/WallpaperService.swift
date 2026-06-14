@@ -4,17 +4,30 @@ import AVFoundation
 
 final class WallpaperService {
 
-    func setWallpaper(filePath: URL, isMuted: Bool = false) throws {
+    func setWallpaper(filePath: URL, isMuted: Bool = false, allScreens: Bool = false) throws {
         let ext = filePath.pathExtension.lowercased()
-        if AssetScanner.videoExts.contains(ext) {
+        if AssetScanner.videoExtensions.contains(ext) {
             try setVideoWallpaper(filePath: filePath, isMuted: isMuted)
         } else {
-            try setImageWallpaper(filePath: filePath)
+            try setImageWallpaper(filePath: filePath, allScreens: allScreens)
         }
     }
 
-    func setImageWallpaper(filePath: URL) throws {
-        try NSWorkspace.shared.setDesktopImageURL(filePath, for: NSScreen.main!, options: [:])
+    func setImageWallpaper(filePath: URL, allScreens: Bool = false) throws {
+        if allScreens {
+            guard !NSScreen.screens.isEmpty else {
+                throw WallpaperError.noScreenAvailable
+            }
+            for screen in NSScreen.screens {
+                try NSWorkspace.shared.setDesktopImageURL(filePath, for: screen, options: [:])
+            }
+            return
+        }
+
+        guard let screen = NSScreen.main else {
+            throw WallpaperError.noScreenAvailable
+        }
+        try NSWorkspace.shared.setDesktopImageURL(filePath, for: screen, options: [:])
     }
 
     private func setVideoWallpaper(filePath: URL, isMuted: Bool) throws {
@@ -39,7 +52,7 @@ final class WallpaperService {
             resourceURL?.appendingPathComponent("WallpaperPlayer"),
             resourceURL?.appendingPathComponent("bin/WallpaperPlayer"),
             execDirURL?.appendingPathComponent("WallpaperPlayer"),
-            resolvePath("../resources/bin/WallpaperPlayer"),
+            PathResolver.resolve("../resources/bin/WallpaperPlayer"),
         ]
 
         return candidates.first(where: {
@@ -48,12 +61,7 @@ final class WallpaperService {
         }) ?? nil
     }
 
-    private func resolvePath(_ path: String) -> URL {
-        let url = URL(fileURLWithPath: path)
-        if url.isFileURL && path.hasPrefix("/") { return url.standardizedFileURL }
-        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        return URL(fileURLWithPath: path, relativeTo: cwd).standardizedFileURL
-    }
+    // resolvePath → PathResolver.resolve in PathResolver.swift
 
     static func killVideoWallpaper() {
         let task = Process()
@@ -87,7 +95,7 @@ final class WallpaperService {
         guard let dest = CGImageDestinationCreateWithURL(tmp as CFURL, "public.jpeg" as CFString, 1, nil) else {
             return nil
         }
-        let opts: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: 0.85]
+        let opts: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: AppConstants.frameCaptureJPEGQuality]
         CGImageDestinationAddImage(dest, cgImage, opts as CFDictionary)
 
         return CGImageDestinationFinalize(dest) ? tmp : nil
@@ -100,11 +108,14 @@ final class WallpaperService {
 
 enum WallpaperError: LocalizedError {
     case playerNotFound
+    case noScreenAvailable
 
     var errorDescription: String? {
         switch self {
         case .playerNotFound:
             return "WallpaperPlayer binary not found. Video wallpaper requires the native player."
+        case .noScreenAvailable:
+            return "No display is available to set the wallpaper on."
         }
     }
 }

@@ -17,6 +17,8 @@ struct WallpaperItem: Identifiable, Hashable {
     var pkgPath: URL?
     var previewPath: URL?
     var thumbnailPath: URL?
+    var thumbnailVersion: String?
+    var metadataKey: String
     var contentRating: String
     var collections: [String]
     var tags: [String]
@@ -30,6 +32,7 @@ struct WallpaperItem: Identifiable, Hashable {
         self.pkgPath = pkg
         self.previewPath = preview
         self.contentRating = project?.contentrating ?? "Everyone"
+        self.metadataKey = directory.lastPathComponent
         self.collections = project?.repkgcollection ?? []
         self.tags = project?.preview_tagger ?? []
         self.isExtracted = WallpaperItem.checkExtracted(directory)

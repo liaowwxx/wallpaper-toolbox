@@ -37,7 +37,18 @@ struct WallpaperCard: View, Equatable {
     let onTap: () -> Void
 
     static func == (lhs: WallpaperCard, rhs: WallpaperCard) -> Bool {
-        lhs.item.id == rhs.item.id && lhs.isSelected == rhs.isSelected
+        lhs.item.id == rhs.item.id
+            && lhs.item.title == rhs.item.title
+            && lhs.item.type == rhs.item.type
+            && lhs.item.pkgPath == rhs.item.pkgPath
+            && lhs.item.previewPath == rhs.item.previewPath
+            && lhs.item.thumbnailPath == rhs.item.thumbnailPath
+            && lhs.item.thumbnailVersion == rhs.item.thumbnailVersion
+            && lhs.item.contentRating == rhs.item.contentRating
+            && lhs.item.collections == rhs.item.collections
+            && lhs.item.tags == rhs.item.tags
+            && lhs.item.isExtracted == rhs.item.isExtracted
+            && lhs.isSelected == rhs.isSelected
     }
 
     var body: some View {
@@ -55,42 +66,53 @@ private struct WallpaperCardInternal: View {
     let onTap: () -> Void
 
     @State private var isHovered = false
+    @State private var isConfirmingDelete = false
 
     var body: some View {
-        thumbnailArea
-            .aspectRatio(1, contentMode: .fill)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay(alignment: .bottom) { infoOverlay }
-            .overlay(alignment: .topLeading) { typeBadge }
-            .overlay(alignment: .bottomTrailing) { statusBadge }
-            .compositingGroup()
-            .overlay(selectionBorder)
-            .overlay(selectionCheckmark)
-            .cardShadow()
-            .scaleEffect(isHovered && !isSelected ? 1.04 : 1.0)
-            .shadow(
-                color: isHovered ? Color.accentColor.opacity(0.25) : .clear,
-                radius: 12, y: 0
-            )
-            .animation(.spring(response: 0.25, dampingFraction: 0.6), value: isHovered)
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
-            .onHover { hovering in
-                isHovered = hovering
+        Button(action: onTap) {
+            thumbnailArea
+                .aspectRatio(1, contentMode: .fill)
+                .overlay(alignment: .bottom) { infoOverlay }
+                .overlay(alignment: .topLeading) { typeBadge }
+                .overlay(alignment: .bottomTrailing) { statusBadge }
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .compositingGroup()
+                .overlay(selectionBorder)
+                .overlay(selectionCheckmark)
+                .cardShadow()
+        }
+        .buttonStyle(.plain)
+        .scaleEffect(isHovered && !isSelected ? 1.04 : 1.0)
+        .shadow(
+            color: isHovered ? Color.accentColor.opacity(0.25) : .clear,
+            radius: 12, y: 0
+        )
+        .animation(.spring(response: 0.25, dampingFraction: 0.6), value: isHovered)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
+        .onHover { hovering in
+            isHovered = hovering
+        }
+        .contextMenu { contextMenuContent }
+        .confirmationDialog("Delete Wallpaper?", isPresented: $isConfirmingDelete) {
+            Button("Delete", role: .destructive) {
+                viewModel.deleteWallpaper(item)
             }
-            .onTapGesture(perform: onTap)
-            .contextMenu { contextMenuContent }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(item.title), \(item.typeLabel)")
-            .accessibilityAddTraits(isSelected ? .isSelected : [])
-            .accessibilityHint(isSelected ? "Double-tap to deselect" : "Double-tap to select")
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This removes the wallpaper from disk.")
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(item.title), \(item.typeLabel)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityHint(isSelected ? "Press to deselect" : "Press to select")
     }
 
     private var thumbnailArea: some View {
         Group {
             if let thumbPath = item.thumbnailPath {
-                ThumbnailView(url: thumbPath, fallbackIcon: item.typeIcon)
+                ThumbnailView(url: thumbPath, version: item.thumbnailVersion, fallbackIcon: item.typeIcon)
             } else if let previewPath = item.previewPath {
-                ThumbnailView(url: previewPath, fallbackIcon: item.typeIcon)
+                ThumbnailView(url: previewPath, version: item.thumbnailVersion, fallbackIcon: item.typeIcon)
             } else {
                 ZStack {
                     Rectangle().fill(.quaternary)
@@ -230,7 +252,7 @@ private struct WallpaperCardInternal: View {
 
         Divider()
         Button("Delete") {
-            viewModel.deleteWallpaper(item)
+            isConfirmingDelete = true
         }
     }
 }

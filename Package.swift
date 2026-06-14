@@ -2,14 +2,14 @@
 import PackageDescription
 
 let package = Package(
-    name: "RePKG-Native",
+    name: "WallPaper-Gallery",
     platforms: [.macOS(.v26)],
     products: [
-        .executable(name: "RePKG-Native", targets: ["RePKG-Native"])
+        .executable(name: "WallPaper-Gallery", targets: ["WallPaper-Gallery"])
     ],
     targets: [
         .executableTarget(
-            name: "RePKG-Native",
+            name: "WallPaper-Gallery",
             path: "Sources",
             swiftSettings: [
                 .swiftLanguageMode(.v5)

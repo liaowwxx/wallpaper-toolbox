@@ -1,8 +1,6 @@
 import SwiftUI
 import AppKit
 
-private var appDidLaunch = false
-
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         WallpaperService.killVideoWallpaper()
@@ -10,18 +8,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @main
-struct RePKG_NativeApp: App {
+struct WallPaperGalleryApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @State private var viewModel = AppViewModel()
+    @State private var viewModel: AppViewModel!
+    @State private var settingsStore: SettingsStore!
+
+    init() {
+        let store = SettingsStore()
+        _settingsStore = State(initialValue: store)
+        _viewModel = State(initialValue: AppViewModel(settingsStore: store))
+    }
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environment(viewModel)
+                .environment(settingsStore)
                 .frame(minWidth: 800, minHeight: 600)
                 .onAppear {
-                    if !appDidLaunch {
-                        appDidLaunch = true
+                    if !viewModel.appDidLaunch {
+                        viewModel.appDidLaunch = true
                         viewModel.restoreWallpaperIfNeeded()
                     }
                     if viewModel.selectedDirectory != nil {
@@ -62,6 +68,7 @@ struct RePKG_NativeApp: App {
         #if os(macOS)
         Settings {
             SettingsView()
+                .environment(settingsStore)
         }
         #endif
     }

@@ -30,11 +30,11 @@ struct AssetFile: Identifiable, Hashable {
 }
 
 struct AssetScanner {
-    static let imageExts: Set<String> = [
+    static let imageExtensions: Set<String> = [
         "jpg", "jpeg", "png", "gif", "bmp", "webp",
         "tiff", "tif", "heic", "heif", "ico"
     ]
-    static let videoExts: Set<String> = [
+    static let videoExtensions: Set<String> = [
         "mp4", "mov", "avi", "mkv", "webm", "m4v",
         "wmv", "flv", "mpg", "mpeg"
     ]
@@ -54,8 +54,8 @@ struct AssetScanner {
             guard !isDir else { continue }
 
             let ext = url.pathExtension.lowercased()
-            let isVideo = videoExts.contains(ext)
-            let isImage = imageExts.contains(ext)
+            let isVideo = videoExtensions.contains(ext)
+            let isImage = imageExtensions.contains(ext)
             guard isVideo || isImage else { continue }
 
             let fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0

@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// App settings window (Cmd+,).
-/// Uses @AppStorage directly — Apple's recommended pattern for Settings scenes.
+/// Uses the shared SettingsStore injected via environment so
+/// changes here are reflected immediately in the main window.
 struct SettingsView: View {
     var body: some View {
         TabView {
@@ -23,13 +24,12 @@ struct SettingsView: View {
 // MARK: - General Tab
 
 private struct GeneralTab: View {
-    @AppStorage("scanMode") private var scanModeRaw = ScanMode.subdir.rawValue
-    @AppStorage("restoreLastWallpaper") private var restoreLastWallpaper = false
+    @Environment(SettingsStore.self) private var settings
 
     private var scanModeBinding: Binding<ScanMode> {
         Binding(
-            get: { ScanMode(rawValue: scanModeRaw) ?? .subdir },
-            set: { scanModeRaw = $0.rawValue }
+            get: { settings.scanMode },
+            set: { settings.scanMode = $0 }
         )
     }
 
@@ -46,7 +46,10 @@ private struct GeneralTab: View {
             }
 
             Section {
-                Toggle("Restore wallpaper on launch", isOn: $restoreLastWallpaper)
+                Toggle("Restore wallpaper on launch", isOn: Binding(
+                    get: { settings.restoreLastWallpaper },
+                    set: { settings.restoreLastWallpaper = $0 }
+                ))
             } header: {
                 Text("Behavior")
             } footer: {
@@ -60,15 +63,20 @@ private struct GeneralTab: View {
 // MARK: - Wallpaper Tab
 
 private struct WallpaperTab: View {
-    @AppStorage("wallpaperMuted") private var wallpaperMuted = true
-    @AppStorage("autoReplaceStatic") private var autoReplaceStaticWithFirstFrame = false
+    @Environment(SettingsStore.self) private var settings
 
     var body: some View {
         Form {
             Section {
-                Toggle("Mute video wallpaper", isOn: $wallpaperMuted)
+                Toggle("Mute video wallpaper", isOn: Binding(
+                    get: { settings.wallpaperMuted },
+                    set: { settings.wallpaperMuted = $0 }
+                ))
 
-                Toggle("Auto-replace static wallpaper with first frame", isOn: $autoReplaceStaticWithFirstFrame)
+                Toggle("Auto-replace static wallpaper with first frame", isOn: Binding(
+                    get: { settings.autoReplaceStaticWithFirstFrame },
+                    set: { settings.autoReplaceStaticWithFirstFrame = $0 }
+                ))
             } header: {
                 Text("Playback")
             } footer: {
@@ -82,25 +90,21 @@ private struct WallpaperTab: View {
 // MARK: - Advanced Tab
 
 private struct AdvancedTab: View {
-    @AppStorage("ignoreExts") private var ignoreExts = ""
-    @AppStorage("onlyExts") private var onlyExts = ""
-    @AppStorage("convertTex") private var convertTex = false
-    @AppStorage("noTexConvert") private var noTexConvert = false
-    @AppStorage("singleDir") private var singleDir = false
-    @AppStorage("recursive") private var recursive = true
-    @AppStorage("copyProject") private var copyProject = false
-    @AppStorage("useName") private var useName = false
-    @AppStorage("overwrite") private var overwrite = false
-    @AppStorage("debugInfo") private var debugInfo = false
-    @AppStorage("copyOnly") private var copyOnly = false
+    @Environment(SettingsStore.self) private var settings
 
     var body: some View {
         Form {
             Section {
-                TextField("e.g. .png,.jpg", text: $ignoreExts)
+                TextField("e.g. .png,.jpg", text: Binding(
+                    get: { settings.ignoreExtensions },
+                    set: { settings.ignoreExtensions = $0 }
+                ))
                     .accessibilityLabel("Ignore extensions")
 
-                TextField("e.g. .png,.jpg", text: $onlyExts)
+                TextField("e.g. .png,.jpg", text: Binding(
+                    get: { settings.onlyExtensions },
+                    set: { settings.onlyExtensions = $0 }
+                ))
                     .accessibilityLabel("Only extensions")
             } header: {
                 Text("Extraction Filters")
@@ -109,15 +113,42 @@ private struct AdvancedTab: View {
             }
 
             Section {
-                Toggle("Convert TEX files (-t)", isOn: $convertTex)
-                Toggle("No TEX conversion", isOn: $noTexConvert)
-                Toggle("Single directory (-s)", isOn: $singleDir)
-                Toggle("Recursive (-r)", isOn: $recursive)
-                Toggle("Copy project.json (-c)", isOn: $copyProject)
-                Toggle("Use name (-n)", isOn: $useName)
-                Toggle("Overwrite existing", isOn: $overwrite)
-                Toggle("Debug info (-d)", isOn: $debugInfo)
-                Toggle("Copy only (skip extraction)", isOn: $copyOnly)
+                Toggle("Convert TEX files (-t)", isOn: Binding(
+                    get: { settings.convertTEX },
+                    set: { settings.convertTEX = $0 }
+                ))
+                Toggle("No TEX conversion", isOn: Binding(
+                    get: { settings.noTEXConvert },
+                    set: { settings.noTEXConvert = $0 }
+                ))
+                Toggle("Single directory (-s)", isOn: Binding(
+                    get: { settings.singleDir },
+                    set: { settings.singleDir = $0 }
+                ))
+                Toggle("Recursive (-r)", isOn: Binding(
+                    get: { settings.recursive },
+                    set: { settings.recursive = $0 }
+                ))
+                Toggle("Copy project.json (-c)", isOn: Binding(
+                    get: { settings.copyProject },
+                    set: { settings.copyProject = $0 }
+                ))
+                Toggle("Use name (-n)", isOn: Binding(
+                    get: { settings.useName },
+                    set: { settings.useName = $0 }
+                ))
+                Toggle("Overwrite existing", isOn: Binding(
+                    get: { settings.overwrite },
+                    set: { settings.overwrite = $0 }
+                ))
+                Toggle("Debug info (-d)", isOn: Binding(
+                    get: { settings.debugInfo },
+                    set: { settings.debugInfo = $0 }
+                ))
+                Toggle("Copy only (skip extraction)", isOn: Binding(
+                    get: { settings.copyOnly },
+                    set: { settings.copyOnly = $0 }
+                ))
             } header: {
                 Text("Default Extraction Options")
             }

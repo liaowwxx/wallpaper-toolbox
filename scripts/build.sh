@@ -4,17 +4,18 @@ set -euo pipefail
 # Build script for creating RePKG ToolBox .app bundle and .dmg
 # Prerequisites: Xcode or Xcode Command Line Tools, Swift 5.9+
 
-APP_NAME="RePKG-Native"
-BUNDLE_NAME="RePKG ToolBox"
-BUNDLE_ID="com.repkg.native"
+APP_NAME="WallPaper-Gallery"
+BUNDLE_NAME="WallPaper Gallery"
+BUNDLE_ID="com.wallpaper.gallery"
 VERSION="${VERSION:-1.0.beta}"
 BUILD_DIR=".build"
 CERT_NAME="${CERT_NAME:-mycert}"
 APP_DIR="${BUILD_DIR}/${BUNDLE_NAME}.app"
-DMG_NAME="${BUILD_DIR}/RePKG-ToolBox-${VERSION}.dmg"
+DMG_NAME="${BUILD_DIR}/WallPaper-Gallery-${VERSION}.dmg"
 RESOURCES_DIR="$(cd "$(dirname "$0")/.." && pwd)/resources"
 REPKG_BIN="${RESOURCES_DIR}/osx-arm64/RePKG"
 REPKG_DLL_DIR="${RESOURCES_DIR}/osx-arm64"
+APP_ICON="${RESOURCES_DIR}/AppIcon.icns"
 
 # ---- helpers ----
 step()  { echo "==> $1"; }
@@ -64,6 +65,11 @@ if [ -f "$WALLPAPER_PLAYER" ]; then
     info "WallpaperPlayer bundled"
 fi
 
+if [ -f "$APP_ICON" ]; then
+    cp "$APP_ICON" "${APP_DIR}/Contents/Resources/AppIcon.icns"
+    info "App icon bundled"
+fi
+
 # ---- Info.plist ----
 step "Writing Info.plist"
 cat > "${APP_DIR}/Contents/Info.plist" << PLIST
@@ -83,6 +89,8 @@ cat > "${APP_DIR}/Contents/Info.plist" << PLIST
 	<string>${BUNDLE_NAME}</string>
 	<key>CFBundleDisplayName</key>
 	<string>${BUNDLE_NAME}</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

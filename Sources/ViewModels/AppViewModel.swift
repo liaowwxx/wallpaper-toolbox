@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import Darwin
 
 @Observable
 @MainActor
@@ -16,6 +17,9 @@ final class AppViewModel {
     var contentRatingFilter: String? = "Everyone"
     var collectionFilter: String? = nil
     var statusText = "Ready"
+
+    /// Tracks whether the initial onAppear launch sequence has run.
+    @ObservationIgnored var appDidLaunch = false
 
     /// Bumped whenever filters or search change, providing animation context for ForEach transitions.
     @ObservationIgnored var filterGeneration = 0
@@ -38,15 +42,13 @@ final class AppViewModel {
     // MARK: - Services
 
     private let scanner = WallpaperScanner()
-    private let repkg = RePKGService()
+    private let repkgService = RePKGService()
     private let wallpaperService = WallpaperService()
     private let metadataService = MetadataService.shared
 
-    private let userDefaultsKey = "com.repkg.native.settings"
-
     private var wallpaperCacheRoot: URL {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-        return caches.appendingPathComponent("com.repkg.native/wallpaper")
+        return caches.appendingPathComponent("\(AppConstants.appBundleIdentifier)/wallpaper")
     }
 
     // MARK: - Settings conveniences (delegated to SettingsStore)
@@ -71,21 +73,21 @@ final class AppViewModel {
         set { settings?.outputDirectory = newValue }
     }
 
-    var ignoreExts: String {
-        get { settings?.ignoreExts ?? "" }
-        set { settings?.ignoreExts = newValue }
+    var ignoreExtensions: String {
+        get { settings?.ignoreExtensions ?? "" }
+        set { settings?.ignoreExtensions = newValue }
     }
-    var onlyExts: String {
-        get { settings?.onlyExts ?? "" }
-        set { settings?.onlyExts = newValue }
+    var onlyExtensions: String {
+        get { settings?.onlyExtensions ?? "" }
+        set { settings?.onlyExtensions = newValue }
     }
-    var convertTex: Bool {
-        get { settings?.convertTex ?? false }
-        set { settings?.convertTex = newValue }
+    var convertTEX: Bool {
+        get { settings?.convertTEX ?? false }
+        set { settings?.convertTEX = newValue }
     }
-    var noTexConvert: Bool {
-        get { settings?.noTexConvert ?? false }
-        set { settings?.noTexConvert = newValue }
+    var noTEXConvert: Bool {
+        get { settings?.noTEXConvert ?? false }
+        set { settings?.noTEXConvert = newValue }
     }
     var singleDir: Bool {
         get { settings?.singleDir ?? false }
@@ -134,6 +136,10 @@ final class AppViewModel {
     )?
 
     @ObservationIgnored private var _cachedCollections: (generation: Int, result: [String])?
+    @ObservationIgnored private var securityScopedURLs = Set<URL>()
+    @ObservationIgnored private var directoryMonitor: DispatchSourceFileSystemObject?
+    @ObservationIgnored private var monitoredDirectory: URL?
+    @ObservationIgnored private var directoryRefreshTask: Task<Void, Never>?
 
     var allCollections: [String] {
         if let cache = _cachedCollections, cache.generation == _wallpaperGeneration {
@@ -183,17 +189,25 @@ final class AppViewModel {
         return wallpapers.filter { ids.contains($0.id) }
     }
 
-    init() {
-        let s = SettingsStore()
-        settings = s
-        scanMode = s.scanMode
+    init(settingsStore: SettingsStore) {
+        self.settings = settingsStore
+        scanMode = settingsStore.scanMode
         loadSettings()
-        repkg.onOutput = { [weak self] text in
+        repkgService.onOutput = { [weak self] text in
             self?.extractionOutput += text
         }
-        repkg.onComplete = { [weak self] code in
+        repkgService.onComplete = { [weak self] code in
             self?.isExtracting = false
             self?.statusText = "Extraction finished (exit code: \(code))"
+        }
+    }
+
+    deinit {
+        searchDebounceTask?.cancel()
+        directoryRefreshTask?.cancel()
+        directoryMonitor?.cancel()
+        for url in securityScopedURLs {
+            url.stopAccessingSecurityScopedResource()
         }
     }
 
@@ -206,11 +220,13 @@ final class AppViewModel {
         panel.allowsMultipleSelection = false
         panel.message = "Select wallpaper directory"
 
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        selectedDirectory = url
-        createSecurityScopedBookmark(for: url, key: "savedDirectoryBookmark")
-        saveSettings()
-        Task { await scan() }
+        Task {
+            guard await panel.begin() == .OK, let url = panel.url else { return }
+            selectedDirectory = url
+            createSecurityScopedBookmark(for: url, key: UserDefaultsKey.savedDirectoryBookmark)
+            saveSettings()
+            await scan()
+        }
     }
 
     func selectOutputDirectory() {
@@ -220,29 +236,78 @@ final class AppViewModel {
         panel.allowsMultipleSelection = false
         panel.message = "Select output directory"
 
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        outputDirectory = url
-        createSecurityScopedBookmark(for: url, key: "savedOutputBookmark")
-        saveSettings()
+        Task {
+            guard await panel.begin() == .OK, let url = panel.url else { return }
+            outputDirectory = url
+            createSecurityScopedBookmark(for: url, key: UserDefaultsKey.savedOutputBookmark)
+            saveSettings()
+        }
     }
 
-    func scan() async {
+    func scan(resetFilters: Bool = true) async {
         guard let dir = selectedDirectory else { return }
+        startDirectoryMonitor(for: dir)
         isScanning = true
         statusText = "Scanning..."
-        selectedIDs.removeAll()
-        contentRatingFilter = "Everyone"
-        collectionFilter = nil
+        if resetFilters {
+            selectedIDs.removeAll()
+            contentRatingFilter = "Everyone"
+            collectionFilter = nil
+        }
 
         let items = await scanner.scan(directory: dir, mode: scanMode)
         wallpapers = items
+        if !resetFilters {
+            selectedIDs.formIntersection(Set(items.map(\.id)))
+        }
         _wallpaperGeneration += 1
         isScanning = false
         statusText = "\(items.count) wallpapers found"
 
-        let preloadURLs = items.prefix(40).compactMap(\.thumbnailPath)
+        let preloadURLs = items.prefix(AppConstants.thumbnailPreloadBatchSize).compactMap(\.thumbnailPath)
         Task.detached(priority: .background) {
             await ThumbnailView.preloadBatch(urls: preloadURLs)
+        }
+    }
+
+    // MARK: - Directory monitoring
+
+    private func startDirectoryMonitor(for directory: URL) {
+        guard monitoredDirectory != directory else { return }
+        directoryRefreshTask?.cancel()
+        directoryMonitor?.cancel()
+        directoryMonitor = nil
+        monitoredDirectory = nil
+
+        let descriptor = open(directory.path, O_EVTONLY)
+        guard descriptor >= 0 else { return }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: descriptor,
+            eventMask: [.write, .delete, .rename],
+            queue: DispatchQueue.global(qos: .utility)
+        )
+        source.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.scheduleDirectoryRefresh()
+            }
+        }
+        source.setCancelHandler {
+            close(descriptor)
+        }
+        source.resume()
+
+        directoryMonitor = source
+        monitoredDirectory = directory
+    }
+
+    private func scheduleDirectoryRefresh() {
+        guard selectedDirectory != nil else { return }
+        directoryRefreshTask?.cancel()
+        directoryRefreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled, let self, !self.isScanning else { return }
+            await self.scan(resetFilters: false)
         }
     }
 
@@ -385,6 +450,7 @@ final class AppViewModel {
 
             if scanMode == .flat, let root = selectedDirectory {
                 var meta = metadataService.readFlatMeta(root: root)
+                meta.removeValue(forKey: item.metadataKey)
                 meta.removeValue(forKey: item.title)
                 metadataService.writeFlatMeta(meta, root: root)
             }
@@ -409,6 +475,7 @@ final class AppViewModel {
         if scanMode == .flat, let root = selectedDirectory {
             var meta = metadataService.readFlatMeta(root: root)
             for item in toDelete where !selectedIDs.contains(item.id) {
+                meta.removeValue(forKey: item.metadataKey)
                 meta.removeValue(forKey: item.title)
             }
             metadataService.writeFlatMeta(meta, root: root)
@@ -456,7 +523,7 @@ final class AppViewModel {
             }
         } else {
             for wp in selectedWallpapers {
-                guard !repkg.isRunning else { break }
+                guard !repkgService.isRunning else { break }
                 guard let pkg = wp.pkgPath else { continue }
 
                 statusText = "Extracting: \(wp.title)"
@@ -468,14 +535,14 @@ final class AppViewModel {
                     targetDir = outputDir.appendingPathComponent(wp.title.sanitizedForPath).path
                 }
 
-                let args = RePKGService.buildArgs(
+                let args = RePKGService.buildArguments(
                     inputPath: pkg.path,
                     outputDir: targetDir,
-                    ignoreExts: ignoreExts.isEmpty ? nil : ignoreExts,
-                    onlyExts: onlyExts.isEmpty ? nil : onlyExts,
+                    ignoreExtensions: ignoreExtensions.isEmpty ? nil : ignoreExtensions,
+                    onlyExtensions: onlyExtensions.isEmpty ? nil : onlyExtensions,
                     debugInfo: debugInfo,
-                    convertTex: convertTex,
-                    noTexConvert: noTexConvert,
+                    convertTEX: convertTEX,
+                    noTEXConvert: noTEXConvert,
                     singleDir: singleDir,
                     recursive: recursive,
                     copyProject: copyProject,
@@ -484,13 +551,13 @@ final class AppViewModel {
                 )
 
                 do {
-                    try repkg.run(arguments: args)
+                    try repkgService.run(arguments: args)
                 } catch {
                     extractionOutput += "Error: \(error.localizedDescription)\n"
                     break
                 }
 
-                while repkg.isRunning {
+                while repkgService.isRunning {
                     try? await Task.sleep(nanoseconds: 100_000_000)
                 }
             }
@@ -511,14 +578,14 @@ final class AppViewModel {
         showExtractSheet = true
         statusText = "Extracting all..."
 
-        let args = RePKGService.buildArgs(
+        let args = RePKGService.buildArguments(
             inputPath: inputDir.path,
             outputDir: outputDir.path,
-            ignoreExts: ignoreExts.isEmpty ? nil : ignoreExts,
-            onlyExts: onlyExts.isEmpty ? nil : onlyExts,
+            ignoreExtensions: ignoreExtensions.isEmpty ? nil : ignoreExtensions,
+            onlyExtensions: onlyExtensions.isEmpty ? nil : onlyExtensions,
             debugInfo: debugInfo,
-            convertTex: convertTex,
-            noTexConvert: noTexConvert,
+            convertTEX: convertTEX,
+            noTEXConvert: noTEXConvert,
             singleDir: singleDir,
             recursive: recursive,
             copyProject: copyProject,
@@ -527,21 +594,21 @@ final class AppViewModel {
         )
 
         do {
-            try repkg.run(arguments: args)
+            try repkgService.run(arguments: args)
         } catch {
             extractionOutput += "Error: \(error.localizedDescription)\n"
             isExtracting = false
             return
         }
 
-        while repkg.isRunning {
+        while repkgService.isRunning {
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
         isExtracting = false
     }
 
     func stopExtraction() {
-        repkg.stop()
+        repkgService.stop()
         isExtracting = false
         statusText = "Extraction stopped"
     }
@@ -564,7 +631,7 @@ final class AppViewModel {
                 let cacheDir = wallpaperCacheRoot.appendingPathComponent(item.id.sanitizedForPath)
                 try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
 
-                let args = RePKGService.buildArgs(
+                let args = RePKGService.buildArguments(
                     inputPath: pkg.path,
                     outputDir: cacheDir.path,
                     singleDir: true,
@@ -572,7 +639,7 @@ final class AppViewModel {
                     overwrite: true
                 )
                 do {
-                    _ = try await repkg.runAndWait(arguments: args)
+                    _ = try await repkgService.runAndWait(arguments: args)
                 } catch {
                     statusText = "Wallpaper extraction failed: \(error.localizedDescription)"
                     wallpaperStatus = ""
@@ -609,18 +676,16 @@ final class AppViewModel {
             WallpaperService.killVideoWallpaper()
             if wallpaperForAllScreens {
                 if asset.isVideo {
-                    try wallpaperService.setWallpaper(filePath: asset.url, isMuted: wallpaperMuted)
+                    try wallpaperService.setWallpaper(filePath: asset.url, isMuted: wallpaperMuted, allScreens: true)
                     if autoReplaceStaticWithFirstFrame {
                         Task {
                             if let frameURL = await WallpaperService.captureFirstFrame(videoURL: asset.url) {
-                                try? wallpaperService.setImageWallpaper(filePath: frameURL)
+                                try? wallpaperService.setImageWallpaper(filePath: frameURL, allScreens: true)
                             }
                         }
                     }
                 } else {
-                    for screen in NSScreen.screens {
-                        try NSWorkspace.shared.setDesktopImageURL(asset.url, for: screen, options: [:])
-                    }
+                    try wallpaperService.setImageWallpaper(filePath: asset.url, allScreens: true)
                 }
                 statusText = "Wallpaper set on all screens: \(asset.name)\(wallpaperMuted ? " (muted)" : "")"
             } else {
@@ -661,17 +726,10 @@ final class AppViewModel {
     }
 
     private func setFlatWallpaper(url: URL, allScreens: Bool) {
-        let isVideo = AssetScanner.videoExts.contains(url.pathExtension.lowercased())
         do {
             WallpaperService.killVideoWallpaper()
             if allScreens {
-                if isVideo {
-                    try wallpaperService.setWallpaper(filePath: url, isMuted: wallpaperMuted)
-                } else {
-                    for screen in NSScreen.screens {
-                        try NSWorkspace.shared.setDesktopImageURL(url, for: screen, options: [:])
-                    }
-                }
+                try wallpaperService.setWallpaper(filePath: url, isMuted: wallpaperMuted, allScreens: true)
             } else {
                 try wallpaperService.setWallpaper(filePath: url, isMuted: wallpaperMuted)
             }
@@ -731,6 +789,7 @@ final class AppViewModel {
                 UserDefaults.standard.set(newBookmark, forKey: key)
             }
             guard url.startAccessingSecurityScopedResource() else { return nil }
+            securityScopedURLs.insert(url)
             return url
         } catch {
             return nil
@@ -743,15 +802,16 @@ final class AppViewModel {
         var dict: [String: Any] = [:]
         if let dir = selectedDirectory { dict["selectedDirectory"] = dir.path }
         dict["scanMode"] = scanMode.rawValue
-        UserDefaults.standard.set(dict, forKey: userDefaultsKey)
+        UserDefaults.standard.set(dict, forKey: UserDefaultsKey.appSettings)
+        settings?.scanMode = scanMode
     }
 
     private func loadSettings() {
-        guard let dict = UserDefaults.standard.dictionary(forKey: userDefaultsKey) else { return }
+        guard let dict = UserDefaults.standard.dictionary(forKey: UserDefaultsKey.appSettings) else { return }
 
         // Restore directory via security-scoped bookmark if available,
         // falling back to raw path string for backward compatibility.
-        if let resolved = resolveBookmark(key: "savedDirectoryBookmark") {
+        if let resolved = resolveBookmark(key: UserDefaultsKey.savedDirectoryBookmark) {
             selectedDirectory = resolved
         } else if let path = dict["selectedDirectory"] as? String {
             selectedDirectory = URL(fileURLWithPath: path)
@@ -759,17 +819,20 @@ final class AppViewModel {
 
         if let mode = dict["scanMode"] as? String {
             scanMode = ScanMode(rawValue: mode) ?? settings?.scanMode ?? .subdir
+            settings?.scanMode = scanMode
+        } else {
+            scanMode = settings?.scanMode ?? scanMode
         }
     }
 
     func restoreWallpaperIfNeeded() {
         guard restoreLastWallpaper else { return }
-        guard let path = UserDefaults.standard.string(forKey: "\(userDefaultsKey).lastWallpaper") else { return }
+        guard let path = UserDefaults.standard.string(forKey: UserDefaultsKey.lastWallpaper) else { return }
         let url = URL(fileURLWithPath: path)
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         do {
             WallpaperService.killVideoWallpaper()
-            let isMuted = UserDefaults.standard.bool(forKey: "\(userDefaultsKey).lastWallpaperMuted")
+            let isMuted = UserDefaults.standard.bool(forKey: UserDefaultsKey.lastWallpaperMuted)
             try wallpaperService.setWallpaper(filePath: url, isMuted: isMuted)
         } catch {
             statusText = "Restore wallpaper failed"
@@ -777,8 +840,8 @@ final class AppViewModel {
     }
 
     private func saveLastWallpaper(_ url: URL, isMuted: Bool) {
-        UserDefaults.standard.set(url.path, forKey: "\(userDefaultsKey).lastWallpaper")
-        UserDefaults.standard.set(isMuted, forKey: "\(userDefaultsKey).lastWallpaperMuted")
+        UserDefaults.standard.set(url.path, forKey: UserDefaultsKey.lastWallpaper)
+        UserDefaults.standard.set(isMuted, forKey: UserDefaultsKey.lastWallpaperMuted)
     }
 
     func saveState() {
@@ -791,7 +854,7 @@ final class AppViewModel {
         searchDebounceTask?.cancel()
         let text = searchText
         searchDebounceTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(150))
+            try? await Task.sleep(for: .milliseconds(AppConstants.searchDebounceMilliseconds))
             guard !Task.isCancelled, let self else { return }
             debouncedSearchText = text
             filterGeneration &+= 1

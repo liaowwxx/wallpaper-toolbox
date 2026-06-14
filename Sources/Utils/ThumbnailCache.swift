@@ -3,27 +3,58 @@ import SwiftUI
 
 final class ThumbnailCache {
     static let shared = ThumbnailCache()
-    private let cache = NSCache<NSURL, NSImage>()
+    private final class CachedThumbnail {
+        let image: NSImage
+        let fingerprint: String?
+
+        init(image: NSImage, fingerprint: String?) {
+            self.image = image
+            self.fingerprint = fingerprint
+        }
+    }
+
+    private let cache = NSCache<NSURL, CachedThumbnail>()
 
     private init() {
-        cache.countLimit = 800
-        cache.totalCostLimit = 80 * 1024 * 1024
+        cache.countLimit = AppConstants.thumbnailCacheCountLimit
+        cache.totalCostLimit = AppConstants.thumbnailCacheCostLimit
     }
 
     func image(for url: URL) -> NSImage? {
-        cache.object(forKey: url as NSURL)
+        guard let cached = cache.object(forKey: url as NSURL) else { return nil }
+        let fingerprint = fileFingerprint(for: url)
+        guard cached.fingerprint == fingerprint else {
+            cache.removeObject(forKey: url as NSURL)
+            return nil
+        }
+        return cached.image
     }
 
     func setImage(_ image: NSImage, for url: URL) {
-        let cost = Int(image.size.width * image.size.height * 4)
-        cache.setObject(image, forKey: url as NSURL, cost: cost)
+        let cost = AppConstants.thumbnailSize * AppConstants.thumbnailSize * 4
+        let cached = CachedThumbnail(image: image, fingerprint: fileFingerprint(for: url))
+        cache.setObject(cached, forKey: url as NSURL, cost: cost)
+    }
+
+    private func fileFingerprint(for url: URL) -> String? {
+        guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
+              let modified = values.contentModificationDate else { return nil }
+        let size = values.fileSize ?? 0
+        return "\(modified.timeIntervalSince1970)-\(size)"
     }
 }
 
 struct ThumbnailView: View {
     let url: URL
+    let version: String?
     let fallbackIcon: String
     @State private var image: NSImage?
+
+    init(url: URL, version: String? = nil, fallbackIcon: String) {
+        self.url = url
+        self.version = version
+        self.fallbackIcon = fallbackIcon
+    }
 
     var body: some View {
         Group {
@@ -40,11 +71,19 @@ struct ThumbnailView: View {
                 }
             }
         }
-        .task(id: url, priority: .background) { await load() }
+        .task(id: LoadIdentity(url: url, version: version), priority: .background) {
+            await load()
+        }
+    }
+
+    private struct LoadIdentity: Hashable {
+        let url: URL
+        let version: String?
     }
 
     private func load() async {
         if let cached = ThumbnailCache.shared.image(for: url) { image = cached; return }
+        image = nil
 
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -54,7 +93,7 @@ struct ThumbnailView: View {
 
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
-              let squared = Self.squareCrop(cgImage, size: 256) else { return }
+              let squared = cgImage.squareCroppedAndResized(to: AppConstants.thumbnailSize) else { return }
 
         let thumb = NSImage(cgImage: squared, size: .zero)
         ThumbnailCache.shared.setImage(thumb, for: url)
@@ -74,7 +113,7 @@ struct ThumbnailView: View {
                     ]
                     guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
                           let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
-                          let squared = squareCrop(cg, size: 256) else { return }
+                          let squared = cg.squareCroppedAndResized(to: AppConstants.thumbnailSize) else { return }
                     let thumb = NSImage(cgImage: squared, size: .zero)
                     ThumbnailCache.shared.setImage(thumb, for: url)
                 }
@@ -82,29 +121,5 @@ struct ThumbnailView: View {
         }
     }
 
-    private nonisolated static func squareCrop(_ cgImage: CGImage, size: Int) -> CGImage? {
-        let w = cgImage.width
-        let h = cgImage.height
-        let side = min(w, h)
-        let x = (w - side) / 2
-        let y = (h - side) / 2
-
-        guard let cropped = cgImage.cropping(to: CGRect(x: x, y: y, width: side, height: side)) else {
-            return nil
-        }
-
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        guard let ctx = CGContext(
-            data: nil,
-            width: size, height: size,
-            bitsPerComponent: 8,
-            bytesPerRow: size * 4,
-            space: colorSpace,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return nil }
-
-        ctx.interpolationQuality = .high
-        ctx.draw(cropped, in: CGRect(x: 0, y: 0, width: size, height: size))
-        return ctx.makeImage()
-    }
+    // squareCrop → CGImage.squareCroppedAndResized(to:) in CGImage+Thumbnail.swift
 }

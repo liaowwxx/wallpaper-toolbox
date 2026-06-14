@@ -86,7 +86,7 @@ final class MetadataService {
         case .flat:
             guard let root = flatRoot else { return }
             var meta = readFlatMeta(root: root)
-            let key = item.title
+            let key = item.metadataKey
             let entry = FlatMetaItem(
                 contentrating: item.contentRating,
                 repkgcollection: item.collections.isEmpty ? nil : item.collections,
