@@ -6,7 +6,6 @@ import Observation
 final class RemoteLibraryViewModel {
     var selectedTab: AppTab = .library
     var serverURLText = "http://localhost:8080"
-    var agentURLText = "http://localhost:8090"
     var username = ""
     var password = ""
     var query = ""
@@ -42,16 +41,19 @@ final class RemoteLibraryViewModel {
         manifest?.supportsUnpackJobs == true
     }
 
+    func item(withID id: String) -> RemoteWallpaperItem? {
+        items.first { $0.id == id }
+    }
+
     func connect() async {
         guard let url = URL(string: serverURLText.trimmingCharacters(in: .whitespacesAndNewlines)),
               url.scheme != nil else {
             errorMessage = RemoteLibraryError.invalidServerURL.localizedDescription
             return
         }
-        let agentURL = parsedAgentURL()
 
         await runLoadingTask {
-            let client = RemoteLibraryClient(baseURL: url, agentBaseURL: agentURL, username: username, password: password)
+            let client = RemoteLibraryClient(baseURL: url, username: username, password: password)
             let manifest = try await client.fetchManifest()
             try validate(manifest)
             self.manifest = manifest
@@ -89,10 +91,20 @@ final class RemoteLibraryViewModel {
         }
 
         await runLoadingTask {
-            let client = RemoteLibraryClient(baseURL: url, agentBaseURL: parsedAgentURL(), username: username, password: password)
+            let client = RemoteLibraryClient(baseURL: url, username: username, password: password)
             let job = try await client.triggerUnpack(itemID: item.id)
             self.latestJob = job
             self.statusMessage = "Unpack job \(job.state)"
+            if job.state == "failed" {
+                self.errorMessage = job.message ?? "Remote unpack failed."
+                return
+            }
+            if job.state == "done" {
+                let manifest = try await client.fetchManifest()
+                try validate(manifest)
+                self.manifest = manifest
+                self.statusMessage = "\(item.title) unpacked"
+            }
         }
     }
 
@@ -119,12 +131,6 @@ final class RemoteLibraryViewModel {
         } catch {
             errorMessage = error.localizedDescription
         }
-    }
-
-    private func parsedAgentURL() -> URL? {
-        let value = agentURLText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else { return nil }
-        return URL(string: value)
     }
 }
 

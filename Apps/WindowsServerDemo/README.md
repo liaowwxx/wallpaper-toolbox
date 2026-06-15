@@ -1,122 +1,83 @@
 # Wallpaper Gallery Windows Server Demo
 
-This demo is the Windows side of the remote-library flow from `docs/cross-platform-windows-server-plan.md`.
+This is the Windows-side demo for the remote library workflow described in `docs/cross-platform-windows-server-plan.md`.
 
-It uses two small pieces:
+It provides:
 
-- `miniserve` serves heavy static files: `library.json`, thumbnails, extracted images, and videos.
-- `Start-WallpaperAgent.ps1` exposes the optional control API for status, manifest reads, rescans, and queued RePKG unpack jobs.
+- A Streamlit control panel for configuration and service startup.
+- Thumbnail and `library.json` generation.
+- A small FastAPI API used by the iOS demo.
+- Optional miniserve startup for static file serving.
+- RePKG unpacking on demand with the same default behavior used by the macOS wallpaper pipeline: `extract -o <output> -s --overwrite <pkg>`.
 
-## Layout
+## Expected Directory
 
 ```text
 D:\WallpaperLibrary
-  packages\
-  extracted\
-  thumbs\
-  jobs\
-  logs\
-  library.json
+  |-- 281990
+  |   |-- project.json
+  |   |-- preview.jpg
+  |   `-- scene.pkg
+  |-- 843221
+  |   |-- project.json
+  |   `-- scene.mp4
+  |-- extracted
+  |-- thumbs
+  `-- library.json
 ```
 
-Put Wallpaper Engine workshop folders or raw `.pkg` files in `packages\`.
+The demo scans direct child folders. It reads `project.json` for `title`, `type`, `file`, `preview_tagger`, and `repkgcollection` when present.
 
-Recommended workshop-folder layout:
-
-```text
-D:\WallpaperLibrary\packages\281990
-  project.json
-  preview.jpg
-  scene.pkg
-```
-
-After unpacking, generated files go to:
-
-```text
-D:\WallpaperLibrary\extracted\281990
-```
-
-## Dependencies
-
-- RePKG: https://github.com/notscuffed/repkg
-- miniserve: https://github.com/svenstaro/miniserve
-- Optional `ffmpeg` on `PATH` for video thumbnail generation when no `preview.*` image exists.
-
-The RePKG README documents `extract`, including `-o/--output`, `-c/--copyproject`, and `--overwrite`. The miniserve README documents `--auth`, `-p/--port`, `-i/--interfaces`, `-q/--qrcode`, `-P/--no-symlinks`, and Range request support.
-
-## Quick Start
-
-From PowerShell:
+## Install
 
 ```powershell
-cd "...\wallpaper toolbox\Apps\WindowsServerDemo"
-Copy-Item .\config.example.json .\config.json
-notepad .\config.json
+cd Apps\WindowsServerDemo
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
 ```
 
-Set:
+Install or place these binaries somewhere on `PATH`:
 
-- `libraryRoot`
-- `repkgPath`
-- `miniservePath`
-- `authUser` / `authPassword`
+- RePKG: <https://github.com/notscuffed/repkg>
+- miniserve: <https://github.com/svenstaro/miniserve>
+- ffmpeg, optional but recommended for video thumbnails
 
-Initialize folders:
+## Run
 
 ```powershell
-.\scripts\Initialize-WallpaperLibrary.ps1
+streamlit run wallpaper_server_demo\streamlit_app.py
 ```
 
-Generate the first manifest:
+In the Streamlit page:
 
-```powershell
-.\scripts\Generate-LibraryManifest.ps1
-```
+1. Set the library root.
+2. Set `RePKG.exe`, `miniserve.exe`, and `ffmpeg.exe` paths if they are not on `PATH`.
+3. Click `Generate thumbnails + manifest`.
+4. Click `Start API server`.
+5. Optional: click `Start miniserve` and set `Public static base URL` to the miniserve address, for example `http://192.168.1.20:8080`.
 
-Start static file serving:
+Use the `iOS Settings URL` shown in Streamlit as the iOS app server URL.
 
-```powershell
-.\scripts\Start-MiniServe.ps1
-```
+## iOS Workflow
 
-Start the optional API agent in a second PowerShell window:
-
-```powershell
-.\scripts\Start-WallpaperAgent.ps1
-```
-
-If Windows asks about firewall access, allow private-network access for both servers.
-
-## Client URLs
-
-Use these in the iOS demo:
-
-- Library URL: `http://<windows-ip>:8080`
-- Agent API URL: `http://<windows-ip>:8090`
-
-If auth is enabled, use the same username and password in the iOS settings.
+- Initial load reads `library.json` and shows title, type, and thumbnail.
+- Video wallpapers expose direct video assets and stream from the Windows server.
+- Package wallpapers initially expose no media assets.
+- When iOS opens a package wallpaper detail screen, it calls `POST /api/wallpapers/{id}/unpack`.
+- The Windows server runs RePKG, regenerates `library.json`, and iOS reloads the manifest.
+- iOS previews remote files by URL. Files are only downloaded when the user taps Save or Export.
 
 ## API
 
 ```text
 GET  /api/status
+GET  /library.json
 GET  /api/library
 GET  /api/wallpapers
 GET  /api/wallpapers/{id}
 POST /api/wallpapers/{id}/unpack
 GET  /api/jobs/{jobId}
 POST /api/library/rescan
+GET  /files/{relative_path}
 ```
-
-Unpack jobs are queued one at a time in the agent process. Job state files are written to `jobs\`.
-
-## Static Manifest Only
-
-You can skip the agent completely for the Phase 1 browsing flow. Run only:
-
-```powershell
-.\scripts\Generate-LibraryManifest.ps1
-.\scripts\Start-MiniServe.ps1
-```
-
-Then connect the iOS demo to `http://<windows-ip>:8080`.

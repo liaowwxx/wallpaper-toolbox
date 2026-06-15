@@ -8,10 +8,7 @@ struct ConnectionSettingsView: View {
 
         Form {
             Section {
-                TextField("Library URL", text: $library.serverURLText)
-                    .serverURLInputStyle()
-
-                TextField("Agent API URL", text: $library.agentURLText)
+                TextField("Server URL", text: $library.serverURLText)
                     .serverURLInputStyle()
 
                 TextField("Username", text: $library.username)
@@ -21,7 +18,7 @@ struct ConnectionSettingsView: View {
             } header: {
                 Text("Windows Library")
             } footer: {
-                Text("Library URL points to miniserve. Agent API URL points to the optional PowerShell control server.")
+                Text("Point this at the miniserve root that exposes library.json.")
             }
 
             Section {

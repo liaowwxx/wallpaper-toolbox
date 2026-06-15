@@ -29,12 +29,7 @@ miniserve-win.exe `
   D:\WallpaperLibrary
 ```
 
-Then enter URLs like these in the app settings:
-
-- Library URL: `http://192.168.1.20:8080`
-- Agent API URL: `http://192.168.1.20:8090`
-
-The Agent API URL is only needed for remote unpack/rescan jobs. Static browsing works with the Library URL alone.
+Then enter a URL like `http://192.168.1.20:8080` in the app settings.
 
 ## Current Limits
 

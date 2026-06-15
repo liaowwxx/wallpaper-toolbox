@@ -11,7 +11,9 @@ xcuserdata/
 DerivedData/
 *.xcodeproj/
 !Apps/iOSDemo/*.xcodeproj/
-!Apps/iOSDemo/*.xcodeproj/project.pbxproj
+!Apps/iOSDemo/*.xcodeproj/**
+Apps/iOSDemo/*.xcodeproj/project.xcworkspace/
+Apps/iOSDemo/*.xcodeproj/xcuserdata/
 *.xcuserstate
 *.xcscmblueprint
 *.moved-aside

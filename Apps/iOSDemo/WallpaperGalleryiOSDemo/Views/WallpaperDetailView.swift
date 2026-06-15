@@ -5,15 +5,17 @@ struct WallpaperDetailView: View {
     @Environment(RemoteLibraryViewModel.self) private var library
     let item: RemoteWallpaperItem
 
-    private var primaryAsset: RemoteAsset? {
-        item.assets.first { $0.kind == .video } ?? item.assets.first { $0.kind == .image } ?? item.assets.first
+    private var currentItem: RemoteWallpaperItem {
+        library.item(withID: item.id) ?? item
     }
 
     var body: some View {
+        let item = currentItem
+
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 AssetPreview(
-                    asset: primaryAsset,
+                    asset: primaryAsset(for: item),
                     thumbnailURL: item.thumbnailURL(relativeTo: library.baseURL),
                     baseURL: library.baseURL,
                     fallbackIcon: item.typeIcon
@@ -44,7 +46,7 @@ struct WallpaperDetailView: View {
                     }
                 }
 
-                if !item.isUnpacked {
+                if shouldShowUnpackPanel(for: item) {
                     UnpackPanel(item: item)
                 }
 
@@ -52,8 +54,18 @@ struct WallpaperDetailView: View {
                     Text("Assets")
                         .font(.headline)
 
-                    ForEach(item.assets) { asset in
-                        AssetActionRow(asset: asset)
+                    if item.assets.isEmpty {
+                        ContentUnavailableView(
+                            "No Assets Yet",
+                            systemImage: item.type == .video ? "film" : "shippingbox",
+                            description: Text(emptyAssetMessage(for: item))
+                        )
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                    } else {
+                        ForEach(item.assets) { asset in
+                            AssetActionRow(asset: asset)
+                        }
                     }
                 }
             }
@@ -61,7 +73,40 @@ struct WallpaperDetailView: View {
         }
         .navigationTitle(item.title)
         .iOSInlineNavigationTitle()
+        .task(id: autoUnpackTaskID(for: item)) {
+            guard shouldAutoUnpack(for: item) else { return }
+            await library.triggerUnpack(for: item)
+        }
         .statusOverlay()
+    }
+
+    private func primaryAsset(for item: RemoteWallpaperItem) -> RemoteAsset? {
+        item.assets.first { $0.kind == .video } ?? item.assets.first { $0.kind == .image } ?? item.assets.first
+    }
+
+    private func shouldShowUnpackPanel(for item: RemoteWallpaperItem) -> Bool {
+        item.type != .video && !item.isUnpacked
+    }
+
+    private func shouldAutoUnpack(for item: RemoteWallpaperItem) -> Bool {
+        shouldShowUnpackPanel(for: item)
+            && item.assets.isEmpty
+            && library.canTriggerUnpack
+            && !library.isLoading
+    }
+
+    private func autoUnpackTaskID(for item: RemoteWallpaperItem) -> String {
+        "\(item.id)-\(item.isUnpacked)-\(item.assets.count)"
+    }
+
+    private func emptyAssetMessage(for item: RemoteWallpaperItem) -> String {
+        if item.type == .video {
+            return "The Windows server did not expose a direct video asset for this wallpaper."
+        }
+        if item.isUnpacked {
+            return "The package was unpacked, but no image or video files were found."
+        }
+        return "The Windows server will unpack this package and refresh the list."
     }
 }
 

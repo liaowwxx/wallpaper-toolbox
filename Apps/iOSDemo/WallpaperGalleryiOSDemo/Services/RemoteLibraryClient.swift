@@ -2,7 +2,6 @@ import Foundation
 
 struct RemoteLibraryClient {
     var baseURL: URL
-    var agentBaseURL: URL?
     var username: String
     var password: String
 
@@ -18,8 +17,7 @@ struct RemoteLibraryClient {
     }
 
     func triggerUnpack(itemID: String) async throws -> UnpackJob {
-        let apiBaseURL = agentBaseURL ?? baseURL
-        let url = apiBaseURL.appending(path: "api/wallpapers/\(itemID)/unpack")
+        let url = baseURL.appending(path: "api/wallpapers/\(itemID)/unpack")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
