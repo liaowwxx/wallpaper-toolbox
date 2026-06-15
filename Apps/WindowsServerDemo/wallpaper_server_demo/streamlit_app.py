@@ -12,11 +12,12 @@ import urllib.request
 
 import streamlit as st
 
+DEMO_ROOT = Path(__file__).resolve().parents[1]
+if str(DEMO_ROOT) not in sys.path:
+    sys.path.insert(0, str(DEMO_ROOT))
+
 from wallpaper_server_demo.config import CONFIG_ENV, ServerConfig, config_path, load_config, save_config
 from wallpaper_server_demo.library import build_and_write_manifest, scan_library
-
-
-DEMO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def main() -> None:
