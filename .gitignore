@@ -2,6 +2,7 @@
 .build/
 .swiftpm/
 Package.resolved
+.index-build/
 
 # Xcode
 *.xcuserdata/
@@ -9,16 +10,45 @@ Package.resolved
 xcuserdata/
 DerivedData/
 *.xcodeproj/
+*.xcuserstate
+*.xcscmblueprint
+*.moved-aside
+*.xcarchive
+*.dSYM/
 
 # macOS
 .DS_Store
+._*
 *.app
 *.dmg
+*.pkg
+*.ipa
 Thumbs.db
 
 # IDE
 .vscode/
 .idea/
+
+# Local environment / secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# Logs and diagnostics
+*.log
+*.trace
+*.crash
+*.ips
+
+# App-generated caches and transient wallpaper metadata
+temp_thumb/
+**/temp_thumb/
+_repkg_meta.json
+**/_repkg_meta.json
+
+# Generated icon intermediates
+*.iconset/
 
 # Bundled external binaries (RePKG CLI + .NET runtime, WallpaperPlayer).
 # These are obtained from external sources and are large — track separately
