@@ -10,6 +10,8 @@ Package.resolved
 xcuserdata/
 DerivedData/
 *.xcodeproj/
+!Apps/iOSDemo/*.xcodeproj/
+!Apps/iOSDemo/*.xcodeproj/project.pbxproj
 *.xcuserstate
 *.xcscmblueprint
 *.moved-aside

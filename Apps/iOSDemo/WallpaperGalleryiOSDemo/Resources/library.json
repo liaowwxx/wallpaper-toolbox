@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "serverVersion": "0.1.0-demo",
+  "generatedAt": "2026-06-15T00:00:00Z",
+  "features": ["rangeStreaming", "staticManifest", "unpackJobs", "thumbnails"],
+  "items": [
+    {
+      "id": "281990",
+      "title": "Rainy Street",
+      "type": "video",
+      "thumbnail": "/thumbs/281990.jpg",
+      "isUnpacked": true,
+      "tags": ["city", "rain", "night"],
+      "collections": ["Favorites", "Mood"],
+      "assets": [
+        {
+          "id": "281990-main-video",
+          "name": "scene.mp4",
+          "kind": "video",
+          "url": "/extracted/281990/scene.mp4",
+          "size": 104857600
+        }
+      ]
+    },
+    {
+      "id": "843221",
+      "title": "Quiet Mountain Lake",
+      "type": "image",
+      "thumbnail": "/thumbs/843221.jpg",
+      "isUnpacked": true,
+      "tags": ["nature", "lake", "calm"],
+      "collections": ["Relax"],
+      "assets": [
+        {
+          "id": "843221-main-image",
+          "name": "lake.png",
+          "kind": "image",
+          "url": "/extracted/843221/lake.png",
+          "size": 8388608
+        }
+      ]
+    },
+    {
+      "id": "991204",
+      "title": "Neon Alley Scene",
+      "type": "scene",
+      "thumbnail": "/thumbs/991204.jpg",
+      "isUnpacked": false,
+      "tags": ["cyberpunk", "neon", "city"],
+      "collections": ["Favorites"],
+      "assets": []
+    },
+    {
+      "id": "155010",
+      "title": "Ocean Loop",
+      "type": "video",
+      "thumbnail": "/thumbs/155010.jpg",
+      "isUnpacked": true,
+      "tags": ["ocean", "loop", "blue"],
+      "collections": ["Relax", "Video"],
+      "assets": [
+        {
+          "id": "155010-main-video",
+          "name": "ocean-loop.mp4",
+          "kind": "video",
+          "url": "/extracted/155010/ocean-loop.mp4",
+          "size": 73400320
+        },
+        {
+          "id": "155010-poster",
+          "name": "poster.jpg",
+          "kind": "image",
+          "url": "/extracted/155010/poster.jpg",
+          "size": 3145728
+        }
+      ]
+    }
+  ]
+}
