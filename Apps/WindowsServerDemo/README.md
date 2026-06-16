@@ -37,7 +37,7 @@ py -m venv .venv
 pip install -r requirements.txt
 ```
 
-Install or place these binaries somewhere on `PATH`:
+Install or place these binaries somewhere on `PATH`, or select their `.exe` files from the Streamlit page:
 
 - RePKG: <https://github.com/notscuffed/repkg>
 - miniserve: <https://github.com/svenstaro/miniserve>
@@ -51,13 +51,22 @@ streamlit run wallpaper_server_demo\streamlit_app.py
 
 In the Streamlit page:
 
-1. Set the library root.
-2. Set `RePKG.exe`, `miniserve.exe`, and `ffmpeg.exe` paths if they are not on `PATH`.
-3. Click `Generate thumbnails + manifest`.
-4. Click `Start API server`.
-5. Optional: click `Start miniserve` and set `Public static base URL` to the miniserve address, for example `http://192.168.1.20:8080`.
+1. Use `Browse` to choose the wallpaper library folder.
+2. Use `Browse` to choose `RePKG.exe` and `miniserve.exe` if they are not on `PATH`.
+3. Optionally choose `ffmpeg.exe`.
+4. Click `Generate thumbnails + manifest`.
+5. Click `Start API server`.
+6. Optional: click `Start miniserve` and set `Public static base URL` to the miniserve address, for example `http://192.168.1.20:8080`.
 
 Use the `iOS Settings URL` shown in Streamlit as the iOS app server URL.
+
+The Browse buttons open native file/folder dialogs on the machine running Streamlit. If you open the Streamlit page from another computer, the dialogs still appear on the Windows PC that is hosting the server.
+
+## About ffmpeg
+
+ffmpeg is not required for unpacking, serving, or iOS video playback.
+
+It is only used to generate thumbnails from video files when no `preview.jpg`, `preview.png`, `preview.gif`, or `preview.webp` exists. If ffmpeg is not configured, video wallpapers with preview images still get thumbnails, and videos still stream normally in iOS.
 
 ## iOS Workflow
 

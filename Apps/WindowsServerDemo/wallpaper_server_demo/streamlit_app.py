@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -16,7 +17,7 @@ DEMO_ROOT = Path(__file__).resolve().parents[1]
 if str(DEMO_ROOT) not in sys.path:
     sys.path.insert(0, str(DEMO_ROOT))
 
-from wallpaper_server_demo.config import CONFIG_ENV, ServerConfig, config_path, load_config, save_config
+from wallpaper_server_demo.config import CONFIG_ENV, ServerConfig, load_config, save_config
 from wallpaper_server_demo.library import build_and_write_manifest, scan_library
 
 
@@ -25,6 +26,7 @@ def main() -> None:
     st.title("Wallpaper Gallery Windows Server Demo")
 
     config = load_config()
+    initialize_session_state(config)
     config = render_config_form(config)
 
     st.divider()
@@ -36,60 +38,111 @@ def main() -> None:
 def render_config_form(config: ServerConfig) -> ServerConfig:
     st.subheader("Configuration")
 
-    with st.form("server-config"):
-        library_root = st.text_input(
-            "Wallpaper library root",
-            value=config.library_root,
-            placeholder=r"D:\WallpaperLibrary",
-        )
-        repkg_path = st.text_input("RePKG executable", value=config.repkg_path)
-        ffmpeg_path = st.text_input("ffmpeg executable", value=config.ffmpeg_path)
+    st.caption("Use Browse buttons on the Windows PC running this Streamlit app. Manual paths still work.")
+    render_directory_picker("Wallpaper library root", "library_root", r"D:\WallpaperLibrary")
+    render_executable_picker("RePKG executable", "repkg_path", "RePKG.exe", required=True)
+    render_executable_picker("miniserve executable", "miniserve_path", "miniserve.exe", required=False)
+    render_executable_picker("ffmpeg executable", "ffmpeg_path", "ffmpeg.exe", required=False)
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            api_host = st.text_input("API host", value=config.api_host)
-        with col2:
-            api_port = st.number_input("API port", value=config.api_port, min_value=1, max_value=65535)
-        with col3:
-            miniserve_port = st.number_input(
-                "miniserve port",
-                value=config.miniserve_port,
-                min_value=1,
-                max_value=65535,
-            )
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.text_input("API host", key="api_host")
+    with col2:
+        st.number_input("API port", key="api_port", min_value=1, max_value=65535)
+    with col3:
+        st.number_input("miniserve port", key="miniserve_port", min_value=1, max_value=65535)
 
-        suggested_host = get_lan_ip()
-        public_api_base_url = st.text_input(
-            "Public API base URL for iOS",
-            value=config.public_api_base_url or f"http://{suggested_host}:{api_port}",
-        )
-        public_static_base_url = st.text_input(
-            "Public static base URL",
-            value=config.public_static_base_url,
-            placeholder=f"http://{suggested_host}:{miniserve_port} (optional; blank uses API /files)",
-        )
-
-        miniserve_path = st.text_input("miniserve executable", value=config.miniserve_path)
-        miniserve_auth = st.text_input("miniserve auth user:password", value=config.miniserve_auth)
-
-        submitted = st.form_submit_button("Save configuration")
+    suggested_host = get_lan_ip()
+    st.text_input(
+        "Public API base URL for iOS",
+        key="public_api_base_url",
+        placeholder=f"http://{suggested_host}:{int(st.session_state.api_port)}",
+    )
+    st.text_input(
+        "Public static base URL",
+        key="public_static_base_url",
+        placeholder=f"http://{suggested_host}:{int(st.session_state.miniserve_port)} (optional; blank uses API /files)",
+    )
+    st.text_input("miniserve auth user:password", key="miniserve_auth")
 
     updated = ServerConfig(
-        library_root=library_root.strip(),
-        repkg_path=repkg_path.strip() or "RePKG.exe",
-        ffmpeg_path=ffmpeg_path.strip() or "ffmpeg",
-        api_host=api_host.strip() or "0.0.0.0",
-        api_port=int(api_port),
-        public_api_base_url=public_api_base_url.strip().rstrip("/"),
-        public_static_base_url=public_static_base_url.strip().rstrip("/"),
-        miniserve_path=miniserve_path.strip() or "miniserve.exe",
-        miniserve_port=int(miniserve_port),
-        miniserve_auth=miniserve_auth.strip(),
+        library_root=st.session_state.library_root.strip(),
+        repkg_path=st.session_state.repkg_path.strip() or "RePKG.exe",
+        ffmpeg_path=st.session_state.ffmpeg_path.strip() or "ffmpeg",
+        api_host=st.session_state.api_host.strip() or "0.0.0.0",
+        api_port=int(st.session_state.api_port),
+        public_api_base_url=st.session_state.public_api_base_url.strip().rstrip("/"),
+        public_static_base_url=st.session_state.public_static_base_url.strip().rstrip("/"),
+        miniserve_path=st.session_state.miniserve_path.strip() or "miniserve.exe",
+        miniserve_port=int(st.session_state.miniserve_port),
+        miniserve_auth=st.session_state.miniserve_auth.strip(),
     )
-    if submitted:
+    if st.button("Save configuration", type="primary"):
         path = save_config(updated)
         st.success(f"Saved {path}")
     return updated
+
+
+def initialize_session_state(config: ServerConfig) -> None:
+    defaults = {
+        "library_root": config.library_root,
+        "repkg_path": config.repkg_path,
+        "ffmpeg_path": config.ffmpeg_path,
+        "api_host": config.api_host,
+        "api_port": config.api_port,
+        "public_api_base_url": config.public_api_base_url,
+        "public_static_base_url": config.public_static_base_url,
+        "miniserve_path": config.miniserve_path,
+        "miniserve_port": config.miniserve_port,
+        "miniserve_auth": config.miniserve_auth,
+    }
+    for key, value in defaults.items():
+        st.session_state.setdefault(key, value)
+
+
+def render_directory_picker(label: str, key: str, placeholder: str) -> None:
+    cols = st.columns([5, 1.2])
+    with cols[0]:
+        st.text_input(label, key=key, placeholder=placeholder)
+    with cols[1]:
+        st.write("")
+        if st.button("Browse", key=f"{key}_browse"):
+            selected = choose_directory(label, st.session_state.get(key, ""))
+            if selected:
+                st.session_state[key] = selected
+                st.rerun()
+
+    path = Path(st.session_state.get(key, "")).expanduser()
+    if st.session_state.get(key):
+        if path.exists() and path.is_dir():
+            st.caption("Directory found")
+        else:
+            st.warning(f"Directory not found: {path}")
+
+
+def render_executable_picker(label: str, key: str, default_name: str, required: bool) -> None:
+    cols = st.columns([5, 1.2])
+    with cols[0]:
+        st.text_input(label, key=key, placeholder=default_name)
+    with cols[1]:
+        st.write("")
+        if st.button("Browse", key=f"{key}_browse"):
+            selected = choose_executable(label, st.session_state.get(key, ""))
+            if selected:
+                st.session_state[key] = selected
+                st.rerun()
+
+    value = st.session_state.get(key, "").strip()
+    found = executable_exists(value)
+    if found:
+        st.caption(f"Found: {found}")
+    elif required:
+        st.warning(f"Required executable not found: {value or default_name}")
+    else:
+        st.caption(f"Optional executable not found: {value or default_name}")
+
+    if key == "ffmpeg_path":
+        st.caption("ffmpeg is optional. Without it, video thumbnails only work when a preview image exists.")
 
 
 def render_actions(config: ServerConfig) -> None:
@@ -223,6 +276,60 @@ def call_rescan(config: ServerConfig) -> None:
             st.success(f"API rescan returned HTTP {response.status}")
     except urllib.error.URLError as error:
         st.error(f"API rescan failed: {error}")
+
+
+def choose_directory(title: str, initial_value: str) -> str:
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except Exception as error:
+        st.error(f"Native folder picker is unavailable: {error}")
+        return ""
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    initial_dir = initial_value if Path(initial_value).exists() else str(Path.home())
+    try:
+        selected = filedialog.askdirectory(title=title, initialdir=initial_dir)
+    finally:
+        root.destroy()
+    return selected or ""
+
+
+def choose_executable(title: str, initial_value: str) -> str:
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except Exception as error:
+        st.error(f"Native file picker is unavailable: {error}")
+        return ""
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    current = Path(initial_value)
+    initial_dir = str(current.parent) if current.parent.exists() else str(Path.home())
+    filetypes = [
+        ("Executable files", "*.exe"),
+        ("All files", "*.*"),
+    ]
+    try:
+        selected = filedialog.askopenfilename(title=title, initialdir=initial_dir, filetypes=filetypes)
+    finally:
+        root.destroy()
+    return selected or ""
+
+
+def executable_exists(value: str) -> str:
+    value = value.strip()
+    if not value:
+        return ""
+    path = Path(value).expanduser()
+    if path.exists() and path.is_file():
+        return str(path)
+    found = shutil.which(value)
+    return found or ""
 
 
 def is_running(process: Optional[subprocess.Popen]) -> bool:
