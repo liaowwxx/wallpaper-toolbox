@@ -98,6 +98,9 @@ def initialize_session_state(config: ServerConfig) -> None:
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
+        pending_key = f"_{key}_pending"
+        if pending_key in st.session_state:
+            st.session_state[key] = st.session_state.pop(pending_key)
 
 
 def render_directory_picker(label: str, key: str, placeholder: str) -> None:
@@ -109,7 +112,7 @@ def render_directory_picker(label: str, key: str, placeholder: str) -> None:
         if st.button("Browse", key=f"{key}_browse"):
             selected = choose_directory(label, st.session_state.get(key, ""))
             if selected:
-                st.session_state[key] = selected
+                st.session_state[f"_{key}_pending"] = selected
                 st.rerun()
 
     path = Path(st.session_state.get(key, "")).expanduser()
@@ -129,7 +132,7 @@ def render_executable_picker(label: str, key: str, default_name: str, required: 
         if st.button("Browse", key=f"{key}_browse"):
             selected = choose_executable(label, st.session_state.get(key, ""))
             if selected:
-                st.session_state[key] = selected
+                st.session_state[f"_{key}_pending"] = selected
                 st.rerun()
 
     value = st.session_state.get(key, "").strip()
