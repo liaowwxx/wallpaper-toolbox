@@ -15,7 +15,7 @@ This is a first-pass iOS/iPadOS demo for the Phase 1 remote Windows library flow
 
 Open `WallpaperGalleryiOSDemo.xcodeproj` in Xcode and run the `WallpaperGalleryiOSDemo` scheme on an iPhone or iPad simulator.
 
-The app starts with the bundled sample manifest. To connect to a real Windows library, start miniserve at the library root so `/library.json`, `/thumbs/...`, and `/extracted/...` are all reachable from the device or simulator.
+The app starts with the bundled sample manifest. To connect to a real Windows library from outside the local Wi-Fi, use Tailscale on both the Windows PC and iPhone, then connect to the Windows demo API URL shown by the Streamlit control panel.
 
 Example:
 
@@ -29,7 +29,7 @@ miniserve-win.exe `
   D:\WallpaperLibrary
 ```
 
-Then enter a URL like `http://192.168.1.20:8080` in the app settings.
+Then enter a URL like `http://100.x.y.z:8090` in the app settings.
 
 ## Current Limits
 

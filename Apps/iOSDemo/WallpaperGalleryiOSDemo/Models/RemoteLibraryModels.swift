@@ -157,19 +157,18 @@ enum URLResolver {
     static func resolve(_ value: String?, relativeTo baseURL: URL?) -> URL? {
         guard let value, !value.isEmpty else { return nil }
         if let absolute = URL(string: value), absolute.scheme != nil {
-            return normalizeFileURL(rewriteLocalhost(absolute, relativeTo: baseURL), relativeTo: baseURL)
+            return normalizeFileURL(rewriteServerURL(absolute, relativeTo: baseURL), relativeTo: baseURL)
         }
         guard let baseURL else { return nil }
         let normalizedValue = normalizeRelativePath(value, relativeTo: baseURL)
         return URL(string: normalizedValue, relativeTo: baseURL)?.absoluteURL
     }
 
-    private static func rewriteLocalhost(_ url: URL, relativeTo baseURL: URL?) -> URL {
+    private static func rewriteServerURL(_ url: URL, relativeTo baseURL: URL?) -> URL {
         guard let baseURL,
               let host = url.host,
-              isLocalhost(host),
               let replacementHost = baseURL.host,
-              !isLocalhost(replacementHost),
+              shouldRewrite(host: host, port: url.port, toMatch: baseURL, replacementHost: replacementHost),
               var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return url
         }
@@ -180,6 +179,14 @@ enum URLResolver {
     private static func isLocalhost(_ host: String) -> Bool {
         let normalized = host.lowercased()
         return normalized == "localhost" || normalized == "127.0.0.1" || normalized == "::1"
+    }
+
+    private static func shouldRewrite(host: String, port: Int?, toMatch baseURL: URL, replacementHost: String) -> Bool {
+        guard host != replacementHost else { return false }
+        if isLocalhost(host), !isLocalhost(replacementHost) {
+            return true
+        }
+        return port == baseURL.port
     }
 
     private static func normalizeFileURL(_ url: URL, relativeTo baseURL: URL?) -> URL {

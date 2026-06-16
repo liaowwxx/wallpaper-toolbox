@@ -4,12 +4,15 @@ from pathlib import Path
 from typing import Optional
 import importlib.util
 import os
+import ipaddress
+import re
 import shutil
 import socket
 import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import streamlit as st
@@ -53,9 +56,9 @@ def render_config_form(config: ServerConfig) -> ServerConfig:
     with col3:
         st.number_input("miniserve port", key="miniserve_port", min_value=1, max_value=65535)
 
-    suggested_host = get_lan_ip()
+    suggested_host = get_recommended_host()
     st.text_input(
-        "Public API base URL for iOS",
+        "Public API base URL for iOS (Tailscale preferred)",
         key="public_api_base_url",
         placeholder=f"http://{suggested_host}:{int(st.session_state.api_port)}",
     )
@@ -78,7 +81,7 @@ def render_config_form(config: ServerConfig) -> ServerConfig:
         miniserve_port=int(st.session_state.miniserve_port),
         miniserve_auth=st.session_state.miniserve_auth.strip(),
     )
-    if not updated.public_api_base_url or is_localhost_url(updated.public_api_base_url):
+    if needs_recommended_url_rewrite(updated.public_api_base_url, suggested_host):
         updated.public_api_base_url = f"http://{suggested_host}:{updated.api_port}"
     if st.button("Save configuration", type="primary"):
         path = save_config(updated)
@@ -175,7 +178,7 @@ def render_actions(config: ServerConfig) -> None:
     st.caption(f"miniserve process: {process_status(miniserve_process)}")
 
     st.code(
-        f"iOS Settings URL: {config.normalized_public_api_base_url or f'http://{get_lan_ip()}:{config.api_port}'}",
+        f"iOS Settings URL: {config.normalized_public_api_base_url or f'http://{get_recommended_host()}:{config.api_port}'}",
         language="text",
     )
 
@@ -361,18 +364,104 @@ def process_status(process: Optional[subprocess.Popen]) -> str:
     return f"exited ({process.returncode})"
 
 
-def get_lan_ip() -> str:
+def get_recommended_host() -> str:
+    candidates = local_ipv4_candidates()
+    if candidates:
+        return candidates[0]
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             sock.connect(("8.8.8.8", 80))
-            return sock.getsockname()[0]
+            candidate = sock.getsockname()[0]
+            if is_usable_lan_ip(candidate):
+                return candidate
     except OSError:
-        return "localhost"
+        pass
+    return "localhost"
+
+
+def local_ipv4_candidates() -> list[str]:
+    addresses: set[str] = set()
+    try:
+        hostname = socket.gethostname()
+        for info in socket.getaddrinfo(hostname, None, socket.AF_INET):
+            addresses.add(info[4][0])
+    except OSError:
+        pass
+    addresses.update(ipconfig_ipv4_addresses())
+    return sorted(addresses, key=ip_sort_key)
+
+
+def ipconfig_ipv4_addresses() -> set[str]:
+    try:
+        output = subprocess.check_output(["ipconfig"], text=True, encoding="utf-8", errors="ignore")
+    except Exception:
+        return set()
+    return set(re.findall(r"(?:IPv4[^\r\n:]*|IPv4 Address[^\r\n:]*):\s*([0-9.]+)", output))
+
+
+def ip_sort_key(value: str) -> tuple[int, str]:
+    if not is_usable_lan_ip(value):
+        return (4, value)
+    if is_tailscale_ip(value):
+        return (0, value)
+    if value.startswith("10."):
+        return (1, value)
+    if value.startswith("192.168."):
+        return (2, value)
+    if is_private_172(value):
+        return (3, value)
+    return (4, value)
+
+
+def is_usable_lan_ip(value: str) -> bool:
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    if address.is_loopback or address.is_link_local or address.is_multicast:
+        return False
+    if value.startswith("198.18.") or value.startswith("198.19."):
+        return False
+    return address.is_private or is_tailscale_ip(value)
+
+
+def is_tailscale_ip(value: str) -> bool:
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return address.version == 4 and ipaddress.ip_address("100.64.0.0") <= address <= ipaddress.ip_address("100.127.255.255")
+
+
+def is_private_172(value: str) -> bool:
+    parts = value.split(".")
+    return len(parts) == 4 and parts[0] == "172" and 16 <= int(parts[1]) <= 31
 
 
 def is_localhost_url(value: str) -> bool:
     lowered = value.lower()
     return "://localhost" in lowered or "://127.0.0.1" in lowered
+
+
+def needs_recommended_url_rewrite(value: str, recommended_host: str) -> bool:
+    if not value:
+        return True
+    if is_localhost_url(value):
+        return True
+    host = urllib.parse.urlparse(value).hostname
+    if host is None:
+        return False
+    if not is_usable_lan_ip(host):
+        return is_ip_address(host)
+    return is_tailscale_ip(recommended_host) and is_ip_address(host) and not is_tailscale_ip(host)
+
+
+def is_ip_address(value: str) -> bool:
+    try:
+        ipaddress.ip_address(value)
+        return True
+    except ValueError:
+        return False
 
 
 def missing_api_modules() -> list[str]:

@@ -5,7 +5,7 @@ import Observation
 @Observable
 final class RemoteLibraryViewModel {
     var selectedTab: AppTab = .library
-    var serverURLText = "http://localhost:8090"
+    var serverURLText = Self.defaultServerURL
     var username = ""
     var password = ""
     var query = ""
@@ -21,7 +21,10 @@ final class RemoteLibraryViewModel {
     @ObservationIgnored private let defaults = UserDefaults.standard
 
     init() {
-        serverURLText = defaults.string(forKey: DefaultsKey.serverURL) ?? serverURLText
+        let savedServerURL = defaults.string(forKey: DefaultsKey.serverURL)
+        serverURLText = Self.shouldPreferDefaultTailscale(over: savedServerURL)
+            ? Self.defaultServerURL
+            : savedServerURL ?? Self.defaultServerURL
         username = defaults.string(forKey: DefaultsKey.username) ?? ""
         password = defaults.string(forKey: DefaultsKey.password) ?? ""
     }
@@ -168,6 +171,24 @@ final class RemoteLibraryViewModel {
         }
         return "http://\(trimmed)"
     }
+
+    private static let defaultServerURL = "http://100.100.223.106:8090"
+
+    private static func shouldPreferDefaultTailscale(over savedURLText: String?) -> Bool {
+        guard let savedURLText,
+              let url = URL(string: savedURLText),
+              let host = url.host,
+              !isTailscaleIPv4(host),
+              IPv4Address(host) != nil else {
+            return false
+        }
+        return true
+    }
+
+    private static func isTailscaleIPv4(_ value: String) -> Bool {
+        guard let address = IPv4Address(value) else { return false }
+        return (0x6440_0000...0x647F_FFFF).contains(address.rawValue)
+    }
 }
 
 private func validate(_ manifest: RemoteLibraryManifest) throws {
@@ -180,4 +201,19 @@ private enum DefaultsKey {
     static let serverURL = "RemoteLibrary.serverURL"
     static let username = "RemoteLibrary.username"
     static let password = "RemoteLibrary.password"
+}
+
+private struct IPv4Address {
+    let rawValue: UInt32
+
+    init?(_ value: String) {
+        let parts = value.split(separator: ".")
+        guard parts.count == 4 else { return nil }
+        var result: UInt32 = 0
+        for part in parts {
+            guard let octet = UInt8(String(part)) else { return nil }
+            result = (result << 8) | UInt32(octet)
+        }
+        rawValue = result
+    }
 }

@@ -294,6 +294,4 @@ def public_url(config: ServerConfig, relative_path: Optional[str]) -> str:
     encoded = "/".join(quote(part) for part in relative_path.replace("\\", "/").split("/"))
     if config.normalized_public_static_base_url:
         return f"{config.normalized_public_static_base_url}/{encoded}"
-    if config.normalized_public_api_base_url:
-        return f"{config.normalized_public_api_base_url}/files/{encoded}"
     return f"/files/{encoded}"

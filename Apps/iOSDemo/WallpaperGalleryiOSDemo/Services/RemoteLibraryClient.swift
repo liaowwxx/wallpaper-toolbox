@@ -53,6 +53,7 @@ enum RemoteLibraryError: LocalizedError {
     case unsupportedSchema(Int)
     case httpStatus(Int)
     case missingAssetURL
+    case unsupportedPhotoVideoFormat(String)
     case photoSavingUnavailable
     case sampleMissing
 
@@ -66,6 +67,8 @@ enum RemoteLibraryError: LocalizedError {
             return "Server returned HTTP \(status)."
         case .missingAssetURL:
             return "This asset does not have a valid URL."
+        case .unsupportedPhotoVideoFormat(let format):
+            return "Photos cannot save this video format (\(format)). Use Export instead."
         case .photoSavingUnavailable:
             return "Saving to Photos is only available on iPhone and iPad."
         case .sampleMissing:

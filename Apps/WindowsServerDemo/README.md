@@ -56,9 +56,9 @@ In the Streamlit page:
 3. Optionally choose `ffmpeg.exe`.
 4. Click `Generate thumbnails + manifest`.
 5. Click `Start API server`.
-6. Optional: click `Start miniserve` and set `Public static base URL` to the miniserve address, for example `http://192.168.1.20:8080`.
+6. Optional: click `Start miniserve` only if you want a separate static file server.
 
-Use the `iOS Settings URL` shown in Streamlit as the iOS app server URL.
+Tailscale is the recommended remote-access path. Join the Windows PC and iPhone to the same tailnet, keep `API host` as `0.0.0.0`, and use the `iOS Settings URL` shown in Streamlit. It should look like `http://100.x.y.z:8090`.
 
 The Browse buttons open native file/folder dialogs on the machine running Streamlit. If you open the Streamlit page from another computer, the dialogs still appear on the Windows PC that is hosting the server.
 

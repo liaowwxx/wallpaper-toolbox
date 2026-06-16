@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse, urlunparse
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -35,24 +36,24 @@ def status() -> dict[str, Any]:
 
 
 @app.get("/library.json")
-def root_manifest() -> dict[str, Any]:
-    return api_library()
+def root_manifest(request: Request) -> dict[str, Any]:
+    return api_library(request)
 
 
 @app.get("/api/library")
-def api_library() -> dict[str, Any]:
+def api_library(request: Request) -> dict[str, Any]:
     config = require_config()
-    return load_manifest(config)
+    return manifest_for_request(load_manifest(config), request)
 
 
 @app.get("/api/wallpapers")
-def wallpapers() -> list[dict[str, Any]]:
-    return api_library()["items"]
+def wallpapers(request: Request) -> list[dict[str, Any]]:
+    return api_library(request)["items"]
 
 
 @app.get("/api/wallpapers/{item_id}")
-def wallpaper(item_id: str) -> dict[str, Any]:
-    for item in api_library()["items"]:
+def wallpaper(item_id: str, request: Request) -> dict[str, Any]:
+    for item in api_library(request)["items"]:
         if item["id"] == item_id:
             return item
     raise HTTPException(status_code=404, detail="Wallpaper not found")
@@ -123,3 +124,41 @@ def safe_library_path(root: Path, relative_path: str) -> Path:
     except ValueError as error:
         raise HTTPException(status_code=403, detail="Path escapes library root") from error
     return target
+
+
+def manifest_for_request(manifest: dict[str, Any], request: Request) -> dict[str, Any]:
+    base_url = str(request.base_url).rstrip("/")
+    rewritten = dict(manifest)
+    rewritten["apiBaseURL"] = base_url
+    rewritten["items"] = [
+        item_for_request(item, base_url)
+        for item in manifest.get("items", [])
+    ]
+    return rewritten
+
+
+def item_for_request(item: dict[str, Any], base_url: str) -> dict[str, Any]:
+    rewritten = dict(item)
+    rewritten["thumbnail"] = rewrite_file_url(item.get("thumbnail"), base_url)
+    rewritten["assets"] = [
+        asset_for_request(asset, base_url)
+        for asset in item.get("assets", [])
+    ]
+    return rewritten
+
+
+def asset_for_request(asset: dict[str, Any], base_url: str) -> dict[str, Any]:
+    rewritten = dict(asset)
+    rewritten["url"] = rewrite_file_url(asset.get("url"), base_url)
+    return rewritten
+
+
+def rewrite_file_url(value: Any, base_url: str) -> Any:
+    if not isinstance(value, str) or not value:
+        return value
+    if value.startswith("/files/"):
+        return value
+    parsed = urlparse(value)
+    if parsed.path.startswith("/files/"):
+        return urlunparse(("", "", parsed.path, "", parsed.query, parsed.fragment))
+    return value

@@ -28,7 +28,7 @@ enum PhotoAssetExporter {
             }
             try await saveImage(image)
         case .video:
-            try await saveVideo(localURL)
+            try await saveVideo(localURL, preferredExtension: preferredVideoExtension(for: asset, remoteURL: remoteURL))
         case .unknown:
             throw RemoteLibraryError.missingAssetURL
         }
@@ -42,6 +42,17 @@ enum PhotoAssetExporter {
         guard (200..<300).contains(http.statusCode) else {
             throw RemoteLibraryError.httpStatus(http.statusCode)
         }
+    }
+
+    private static func preferredVideoExtension(for asset: RemoteAsset, remoteURL: URL) throws -> String {
+        let assetExtension = URL(fileURLWithPath: asset.name).pathExtension
+        let remoteExtension = remoteURL.pathExtension
+        let preferredExtension = (assetExtension.isEmpty ? remoteExtension : assetExtension).lowercased()
+        let photoCompatibleExtensions = ["mp4", "mov", "m4v"]
+        guard photoCompatibleExtensions.contains(preferredExtension) else {
+            throw RemoteLibraryError.unsupportedPhotoVideoFormat(preferredExtension.isEmpty ? "unknown" : preferredExtension)
+        }
+        return preferredExtension
     }
 }
 
@@ -75,12 +86,16 @@ private func saveImage(_ image: UIImage) async throws {
     }
 }
 
-private func saveVideo(_ url: URL) async throws {
+private func saveVideo(_ url: URL, preferredExtension: String) async throws {
     let tempURL = FileManager.default.temporaryDirectory
         .appending(path: UUID().uuidString)
-        .appendingPathExtension(url.pathExtension.isEmpty ? "mp4" : url.pathExtension)
+        .appendingPathExtension(preferredExtension)
     try FileManager.default.copyItem(at: url, to: tempURL)
     defer { try? FileManager.default.removeItem(at: tempURL) }
+
+    guard UIVideoAtPathIsCompatibleWithSavedPhotosAlbum(tempURL.path) else {
+        throw RemoteLibraryError.unsupportedPhotoVideoFormat(preferredExtension)
+    }
 
     try await PHPhotoLibrary.shared().performChanges {
         PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: tempURL)
