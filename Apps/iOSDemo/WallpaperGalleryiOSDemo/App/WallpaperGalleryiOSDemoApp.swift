@@ -9,7 +9,7 @@ struct WallpaperGalleryiOSDemoApp: App {
             RootView()
                 .environment(library)
                 .task {
-                    await library.loadInitialLibrary()
+                    await library.loadSampleLibrary()
                 }
         }
     }
