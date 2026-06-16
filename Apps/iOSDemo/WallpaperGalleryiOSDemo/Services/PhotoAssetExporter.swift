@@ -12,7 +12,9 @@ enum PhotoAssetExporter {
         }
 
         #if os(iOS)
-        let (localURL, response) = try await URLSession.shared.download(from: remoteURL)
+        let session = URLSession(configuration: .wallpaperDownload)
+        defer { session.finishTasksAndInvalidate() }
+        let (localURL, response) = try await session.download(from: remoteURL)
         try validate(response)
 
         try await PHPhotoLibrary.requestAuthorization(for: .addOnly)
@@ -40,6 +42,16 @@ enum PhotoAssetExporter {
         guard (200..<300).contains(http.statusCode) else {
             throw RemoteLibraryError.httpStatus(http.statusCode)
         }
+    }
+}
+
+private extension URLSessionConfiguration {
+    static var wallpaperDownload: URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 60
+        configuration.timeoutIntervalForResource = 600
+        configuration.waitsForConnectivity = true
+        return configuration
     }
 }
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Optional
+import importlib.util
 import os
 import shutil
 import socket
@@ -228,6 +229,14 @@ def start_api_server(config: ServerConfig, config_file: Path) -> None:
     if is_running(process):
         st.info("API server is already running.")
         return
+    missing_modules = missing_api_modules()
+    if missing_modules:
+        st.error(
+            "API server dependencies are missing: "
+            + ", ".join(missing_modules)
+            + ". Run: py -m pip install -r Apps\\WindowsServerDemo\\requirements.txt"
+        )
+        return
 
     env = os.environ.copy()
     env[CONFIG_ENV] = str(config_file)
@@ -243,6 +252,9 @@ def start_api_server(config: ServerConfig, config_file: Path) -> None:
     ]
     st.session_state["api_process"] = subprocess.Popen(command, cwd=DEMO_ROOT, env=env)
     time.sleep(0.8)
+    if st.session_state["api_process"].poll() is not None:
+        st.error(f"API server exited immediately with code {st.session_state['api_process'].returncode}.")
+        return
     st.success(f"API server started on {config.api_host}:{config.api_port}")
 
 
@@ -361,6 +373,14 @@ def get_lan_ip() -> str:
 def is_localhost_url(value: str) -> bool:
     lowered = value.lower()
     return "://localhost" in lowered or "://127.0.0.1" in lowered
+
+
+def missing_api_modules() -> list[str]:
+    return [
+        module
+        for module in ("fastapi", "uvicorn")
+        if importlib.util.find_spec(module) is None
+    ]
 
 
 if __name__ == "__main__":

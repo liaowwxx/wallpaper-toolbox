@@ -18,6 +18,14 @@ final class RemoteLibraryViewModel {
     var latestJob: UnpackJob?
     var savingAssetID: String?
 
+    @ObservationIgnored private let defaults = UserDefaults.standard
+
+    init() {
+        serverURLText = defaults.string(forKey: DefaultsKey.serverURL) ?? serverURLText
+        username = defaults.string(forKey: DefaultsKey.username) ?? ""
+        password = defaults.string(forKey: DefaultsKey.password) ?? ""
+    }
+
     var filteredItems: [RemoteWallpaperItem] {
         let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return items.filter { item in
@@ -46,11 +54,13 @@ final class RemoteLibraryViewModel {
     }
 
     func connect() async {
-        guard let url = URL(string: serverURLText.trimmingCharacters(in: .whitespacesAndNewlines)),
+        let normalizedURLText = normalizeServerURLText(serverURLText)
+        guard let url = URL(string: normalizedURLText),
               url.scheme != nil else {
             errorMessage = RemoteLibraryError.invalidServerURL.localizedDescription
             return
         }
+        serverURLText = normalizedURLText
 
         await runLoadingTask {
             let client = RemoteLibraryClient(baseURL: url, username: username, password: password)
@@ -60,7 +70,16 @@ final class RemoteLibraryViewModel {
             self.baseURL = url
             self.statusMessage = "\(manifest.items.count) wallpapers loaded from Windows library"
             self.selectedTab = .library
+            self.saveConnectionSettings()
         }
+    }
+
+    func loadInitialLibrary() async {
+        if defaults.string(forKey: DefaultsKey.serverURL) != nil {
+            await connect()
+            return
+        }
+        await loadSampleLibrary()
     }
 
     func loadSampleLibrary() async {
@@ -109,7 +128,10 @@ final class RemoteLibraryViewModel {
     }
 
     func saveToPhotos(_ asset: RemoteAsset) async {
+        guard savingAssetID == nil else { return }
         savingAssetID = asset.id
+        statusMessage = "Saving \(asset.name)"
+        errorMessage = nil
         defer { savingAssetID = nil }
 
         do {
@@ -132,10 +154,30 @@ final class RemoteLibraryViewModel {
             errorMessage = error.localizedDescription
         }
     }
+
+    private func saveConnectionSettings() {
+        defaults.set(serverURLText.trimmingCharacters(in: .whitespacesAndNewlines), forKey: DefaultsKey.serverURL)
+        defaults.set(username, forKey: DefaultsKey.username)
+        defaults.set(password, forKey: DefaultsKey.password)
+    }
+
+    private func normalizeServerURLText(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.contains("://") {
+            return trimmed
+        }
+        return "http://\(trimmed)"
+    }
 }
 
 private func validate(_ manifest: RemoteLibraryManifest) throws {
     guard manifest.schemaVersion == 1 else {
         throw RemoteLibraryError.unsupportedSchema(manifest.schemaVersion)
     }
+}
+
+private enum DefaultsKey {
+    static let serverURL = "RemoteLibrary.serverURL"
+    static let username = "RemoteLibrary.username"
+    static let password = "RemoteLibrary.password"
 }

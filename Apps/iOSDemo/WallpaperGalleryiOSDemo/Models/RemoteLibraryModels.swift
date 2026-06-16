@@ -15,7 +15,7 @@ struct RemoteLibraryManifest: Decodable, Equatable {
     let items: [RemoteWallpaperItem]
 
     func resolvedAPIBaseURL(relativeTo baseURL: URL?) -> URL? {
-        URLResolver.resolve(apiBaseURL, relativeTo: baseURL)
+        URLResolver.resolveAPIBaseURL(apiBaseURL, relativeTo: baseURL)
     }
 
     var supportsUnpackJobs: Bool {
@@ -141,13 +141,27 @@ struct UnpackJob: Decodable, Identifiable, Hashable {
 }
 
 enum URLResolver {
+    static func resolveAPIBaseURL(_ value: String?, relativeTo baseURL: URL?) -> URL? {
+        if let url = resolve(value, relativeTo: baseURL) {
+            return url
+        }
+        guard let baseURL,
+              shouldUseStaticFilePaths(for: baseURL),
+              var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        components.port = 8090
+        return components.url
+    }
+
     static func resolve(_ value: String?, relativeTo baseURL: URL?) -> URL? {
         guard let value, !value.isEmpty else { return nil }
         if let absolute = URL(string: value), absolute.scheme != nil {
-            return rewriteLocalhost(absolute, relativeTo: baseURL)
+            return normalizeFileURL(rewriteLocalhost(absolute, relativeTo: baseURL), relativeTo: baseURL)
         }
         guard let baseURL else { return nil }
-        return URL(string: value, relativeTo: baseURL)?.absoluteURL
+        let normalizedValue = normalizeRelativePath(value, relativeTo: baseURL)
+        return URL(string: normalizedValue, relativeTo: baseURL)?.absoluteURL
     }
 
     private static func rewriteLocalhost(_ url: URL, relativeTo baseURL: URL?) -> URL {
@@ -166,5 +180,27 @@ enum URLResolver {
     private static func isLocalhost(_ host: String) -> Bool {
         let normalized = host.lowercased()
         return normalized == "localhost" || normalized == "127.0.0.1" || normalized == "::1"
+    }
+
+    private static func normalizeFileURL(_ url: URL, relativeTo baseURL: URL?) -> URL {
+        guard let baseURL,
+              shouldUseStaticFilePaths(for: baseURL),
+              url.path.hasPrefix("/files/"),
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url
+        }
+        components.path = String(url.path.dropFirst("/files".count))
+        return components.url ?? url
+    }
+
+    private static func normalizeRelativePath(_ path: String, relativeTo baseURL: URL) -> String {
+        guard shouldUseStaticFilePaths(for: baseURL), path.hasPrefix("/files/") else {
+            return path
+        }
+        return String(path.dropFirst("/files".count))
+    }
+
+    private static func shouldUseStaticFilePaths(for baseURL: URL) -> Bool {
+        baseURL.port == 8080
     }
 }
