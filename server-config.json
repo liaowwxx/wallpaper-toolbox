@@ -1,12 +1,12 @@
 {
-  "library_root": "",
-  "repkg_path": "RePKG.exe",
-  "ffmpeg_path": "ffmpeg",
+  "library_root": "D:/SteamLibrary/steamapps/workshop/content/431960",
+  "repkg_path": "C:/Users/85982/Downloads/RePKG/RePKG.exe",
+  "ffmpeg_path": "C:/Users/85982/Downloads/ffmpeg-2026-06-15-git-44d082edc8-essentials_build/ffmpeg-2026-06-15-git-44d082edc8-essentials_build/bin/ffmpeg.exe",
   "api_host": "0.0.0.0",
   "api_port": 8090,
   "public_api_base_url": "http://localhost:8090",
   "public_static_base_url": "",
-  "miniserve_path": "miniserve.exe",
+  "miniserve_path": "C:/Users/85982/Downloads/miniserve.exe",
   "miniserve_port": 8080,
   "miniserve_auth": ""
 }

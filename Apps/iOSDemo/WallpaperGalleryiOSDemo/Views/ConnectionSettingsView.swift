@@ -18,7 +18,7 @@ struct ConnectionSettingsView: View {
             } header: {
                 Text("Windows Library")
             } footer: {
-                Text("Point this at the miniserve root that exposes library.json.")
+                Text("Point this at the Windows API URL shown by the server control panel.")
             }
 
             Section {

@@ -77,6 +77,8 @@ def render_config_form(config: ServerConfig) -> ServerConfig:
         miniserve_port=int(st.session_state.miniserve_port),
         miniserve_auth=st.session_state.miniserve_auth.strip(),
     )
+    if not updated.public_api_base_url or is_localhost_url(updated.public_api_base_url):
+        updated.public_api_base_url = f"http://{suggested_host}:{updated.api_port}"
     if st.button("Save configuration", type="primary"):
         path = save_config(updated)
         st.success(f"Saved {path}")
@@ -354,6 +356,11 @@ def get_lan_ip() -> str:
             return sock.getsockname()[0]
     except OSError:
         return "localhost"
+
+
+def is_localhost_url(value: str) -> bool:
+    lowered = value.lower()
+    return "://localhost" in lowered or "://127.0.0.1" in lowered
 
 
 if __name__ == "__main__":

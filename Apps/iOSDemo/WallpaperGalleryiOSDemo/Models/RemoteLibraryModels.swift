@@ -10,8 +10,13 @@ struct RemoteLibraryManifest: Decodable, Equatable {
     let schemaVersion: Int
     let serverVersion: String
     let generatedAt: Date?
+    let apiBaseURL: String?
     let features: [String]
     let items: [RemoteWallpaperItem]
+
+    func resolvedAPIBaseURL(relativeTo baseURL: URL?) -> URL? {
+        URLResolver.resolve(apiBaseURL, relativeTo: baseURL)
+    }
 
     var supportsUnpackJobs: Bool {
         features.contains("unpackJobs")
@@ -139,9 +144,27 @@ enum URLResolver {
     static func resolve(_ value: String?, relativeTo baseURL: URL?) -> URL? {
         guard let value, !value.isEmpty else { return nil }
         if let absolute = URL(string: value), absolute.scheme != nil {
-            return absolute
+            return rewriteLocalhost(absolute, relativeTo: baseURL)
         }
         guard let baseURL else { return nil }
         return URL(string: value, relativeTo: baseURL)?.absoluteURL
+    }
+
+    private static func rewriteLocalhost(_ url: URL, relativeTo baseURL: URL?) -> URL {
+        guard let baseURL,
+              let host = url.host,
+              isLocalhost(host),
+              let replacementHost = baseURL.host,
+              !isLocalhost(replacementHost),
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url
+        }
+        components.host = replacementHost
+        return components.url ?? url
+    }
+
+    private static func isLocalhost(_ host: String) -> Bool {
+        let normalized = host.lowercased()
+        return normalized == "localhost" || normalized == "127.0.0.1" || normalized == "::1"
     }
 }

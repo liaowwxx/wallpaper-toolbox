@@ -5,7 +5,7 @@ import Observation
 @Observable
 final class RemoteLibraryViewModel {
     var selectedTab: AppTab = .library
-    var serverURLText = "http://localhost:8080"
+    var serverURLText = "http://localhost:8090"
     var username = ""
     var password = ""
     var query = ""
@@ -85,7 +85,7 @@ final class RemoteLibraryViewModel {
             errorMessage = "This server does not advertise unpackJobs support."
             return
         }
-        guard let url = baseURL else {
+        guard let manifest, let url = manifest.resolvedAPIBaseURL(relativeTo: baseURL) ?? baseURL else {
             errorMessage = RemoteLibraryError.invalidServerURL.localizedDescription
             return
         }

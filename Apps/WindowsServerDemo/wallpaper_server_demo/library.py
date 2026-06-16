@@ -115,6 +115,7 @@ def build_manifest(config: ServerConfig, records: list[WallpaperRecord]) -> dict
         "schemaVersion": 1,
         "serverVersion": f"windows-demo-{__version__}",
         "generatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "apiBaseURL": config.normalized_public_api_base_url or None,
         "features": ["rangeStreaming", "staticManifest", "unpackJobs", "thumbnails"],
         "items": [record_to_manifest(config, record) for record in records],
     }
@@ -293,4 +294,6 @@ def public_url(config: ServerConfig, relative_path: Optional[str]) -> str:
     encoded = "/".join(quote(part) for part in relative_path.replace("\\", "/").split("/"))
     if config.normalized_public_static_base_url:
         return f"{config.normalized_public_static_base_url}/{encoded}"
+    if config.normalized_public_api_base_url:
+        return f"{config.normalized_public_api_base_url}/files/{encoded}"
     return f"/files/{encoded}"
