@@ -5,7 +5,7 @@ import Observation
 @Observable
 final class RemoteLibraryViewModel {
     var selectedTab: AppTab = .library
-    var serverURLText = ""
+    var serverURLText = Self.defaultServerURL
     var username = ""
     var password = ""
     var query = ""
