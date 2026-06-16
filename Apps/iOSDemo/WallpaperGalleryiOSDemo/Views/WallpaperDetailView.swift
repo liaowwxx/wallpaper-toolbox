@@ -1,8 +1,12 @@
 import AVKit
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 struct WallpaperDetailView: View {
     @Environment(RemoteLibraryViewModel.self) private var library
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let item: RemoteWallpaperItem
 
     private var currentItem: RemoteWallpaperItem {
@@ -11,65 +15,14 @@ struct WallpaperDetailView: View {
 
     var body: some View {
         let item = currentItem
+        let sortedAssets = sortedAssets(for: item)
 
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                AssetPreview(
-                    asset: primaryAsset(for: item),
-                    thumbnailURL: item.thumbnailURL(relativeTo: library.baseURL),
-                    baseURL: library.baseURL,
-                    fallbackIcon: item.typeIcon
-                )
-
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(item.title)
-                            .font(.title2.weight(.bold))
-                        Spacer()
-                        Label(item.typeLabel, systemImage: item.typeIcon)
-                            .font(.caption.weight(.semibold))
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 5)
-                            .background(.thinMaterial, in: .capsule)
-                    }
-
-                    if !item.tags.isEmpty {
-                        FlowLayout(spacing: 8) {
-                            ForEach(item.tags, id: \.self) { tag in
-                                Text(tag)
-                                    .font(.caption)
-                                    .padding(.horizontal, 9)
-                                    .padding(.vertical, 5)
-                                    .background(.secondary.opacity(0.10), in: .capsule)
-                            }
-                        }
-                    }
-                }
-
-                if shouldShowUnpackPanel(for: item) {
-                    UnpackPanel(item: item)
-                }
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Assets")
-                        .font(.headline)
-
-                    if item.assets.isEmpty {
-                        ContentUnavailableView(
-                            "No Assets Yet",
-                            systemImage: item.type == .video ? "film" : "shippingbox",
-                            description: Text(emptyAssetMessage(for: item))
-                        )
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                    } else {
-                        ForEach(item.assets) { asset in
-                            AssetActionRow(asset: asset)
-                        }
-                    }
-                }
+        Group {
+            if horizontalSizeClass == .regular {
+                iPadDetailLayout(item: item, sortedAssets: sortedAssets)
+            } else {
+                compactDetailLayout(item: item, sortedAssets: sortedAssets)
             }
-            .padding(16)
         }
         .navigationTitle(item.title)
         .iOSInlineNavigationTitle()
@@ -80,8 +33,63 @@ struct WallpaperDetailView: View {
         .statusOverlay()
     }
 
+    private func compactDetailLayout(item: RemoteWallpaperItem, sortedAssets: [RemoteAsset]) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                preview(for: item)
+                DetailHeader(item: item)
+                if shouldShowUnpackPanel(for: item) {
+                    UnpackPanel(item: item)
+                }
+                AssetsSection(item: item, assets: sortedAssets, emptyMessage: emptyAssetMessage(for: item))
+            }
+            .padding(16)
+        }
+    }
+
+    private func iPadDetailLayout(item: RemoteWallpaperItem, sortedAssets: [RemoteAsset]) -> some View {
+        GeometryReader { geometry in
+            HStack(alignment: .top, spacing: 0) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        preview(for: item)
+                        DetailHeader(item: item)
+                        if shouldShowUnpackPanel(for: item) {
+                            UnpackPanel(item: item)
+                        }
+                    }
+                    .padding(18)
+                }
+                .frame(width: max(360, geometry.size.width * 0.52))
+
+                Divider()
+
+                ScrollView {
+                    AssetsSection(item: item, assets: sortedAssets, emptyMessage: emptyAssetMessage(for: item))
+                        .padding(18)
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    private func preview(for item: RemoteWallpaperItem) -> some View {
+        AssetPreview(
+            asset: primaryAsset(for: item),
+            thumbnailURL: item.thumbnailURL(relativeTo: library.baseURL),
+            baseURL: library.baseURL,
+            fallbackIcon: item.typeIcon
+        )
+    }
+
     private func primaryAsset(for item: RemoteWallpaperItem) -> RemoteAsset? {
         item.assets.first { $0.kind == .video } ?? item.assets.first { $0.kind == .image } ?? item.assets.first
+    }
+
+    private func sortedAssets(for item: RemoteWallpaperItem) -> [RemoteAsset] {
+        item.assets.sorted { left, right in
+            (left.size ?? -1) > (right.size ?? -1)
+        }
     }
 
     private func shouldShowUnpackPanel(for item: RemoteWallpaperItem) -> Bool {
@@ -107,6 +115,64 @@ struct WallpaperDetailView: View {
             return "The package was unpacked, but no image or video files were found."
         }
         return "The Windows server will unpack this package and refresh the list."
+    }
+}
+
+private struct DetailHeader: View {
+    let item: RemoteWallpaperItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(item.title)
+                    .font(.title2.weight(.bold))
+                Spacer()
+                Label(item.typeLabel, systemImage: item.typeIcon)
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(.thinMaterial, in: .capsule)
+            }
+
+            if !item.tags.isEmpty {
+                FlowLayout(spacing: 8) {
+                    ForEach(item.tags, id: \.self) { tag in
+                        Text(tag)
+                            .font(.caption)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
+                            .background(.secondary.opacity(0.10), in: .capsule)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct AssetsSection: View {
+    let item: RemoteWallpaperItem
+    let assets: [RemoteAsset]
+    let emptyMessage: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Assets")
+                .font(.headline)
+
+            if assets.isEmpty {
+                ContentUnavailableView(
+                    "No Assets Yet",
+                    systemImage: item.type == .video ? "film" : "shippingbox",
+                    description: Text(emptyMessage)
+                )
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+            } else {
+                ForEach(assets) { asset in
+                    AssetActionRow(asset: asset)
+                }
+            }
+        }
     }
 }
 
@@ -213,10 +279,9 @@ private struct AssetActionRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
-                Image(systemName: asset.systemImage)
-                    .font(.title3)
-                    .frame(width: 28)
-                    .foregroundStyle(.tint)
+                AssetThumbnail(asset: asset, baseURL: library.baseURL)
+                    .frame(width: 76, height: 56)
+                    .clipShape(.rect(cornerRadius: 7))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(asset.name)
@@ -256,6 +321,92 @@ private struct AssetActionRow: View {
         .overlay {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(.quaternary, lineWidth: 1)
+        }
+    }
+}
+
+private struct AssetThumbnail: View {
+    let asset: RemoteAsset
+    let baseURL: URL?
+
+    var body: some View {
+        if let url = asset.resolvedURL(relativeTo: baseURL) {
+            switch asset.kind {
+            case .image:
+                ThumbnailImage(url: url, fallbackIcon: asset.systemImage)
+            case .video:
+                VideoThumbnailImage(url: url, fallbackIcon: asset.systemImage)
+            case .unknown:
+                fallback
+            }
+        } else {
+            fallback
+        }
+    }
+
+    private var fallback: some View {
+        ZStack {
+            Color.secondary.opacity(0.12)
+            Image(systemName: asset.systemImage)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct VideoThumbnailImage: View {
+    @Environment(RemoteLibraryViewModel.self) private var library
+
+    let url: URL
+    let fallbackIcon: String
+    @State private var image: Image?
+
+    var body: some View {
+        Group {
+            if let image {
+                image
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                ZStack {
+                    Color.secondary.opacity(0.12)
+                    Image(systemName: fallbackIcon)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task(id: loadID) {
+            await loadThumbnail()
+        }
+        .clipped()
+    }
+
+    private var loadID: String {
+        "\(url.absoluteString)|\(library.authorizationHeader ?? "")"
+    }
+
+    @MainActor
+    private func loadThumbnail() async {
+        image = nil
+        let authorizationHeader = library.authorizationHeader
+        do {
+            let cgImage = try await Task.detached {
+                var options: [String: Any] = [:]
+                if let authorizationHeader {
+                    options["AVURLAssetHTTPHeaderFieldsKey"] = ["Authorization": authorizationHeader]
+                }
+                let asset = AVURLAsset(url: url, options: options.isEmpty ? nil : options)
+                let generator = AVAssetImageGenerator(asset: asset)
+                generator.appliesPreferredTrackTransform = true
+                return try generator.copyCGImage(at: CMTime(seconds: 1, preferredTimescale: 600), actualTime: nil)
+            }.value
+            #if os(iOS)
+            image = Image(uiImage: UIImage(cgImage: cgImage))
+            #endif
+        } catch {
+            image = nil
         }
     }
 }

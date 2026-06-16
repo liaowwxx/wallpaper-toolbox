@@ -6,7 +6,7 @@ It provides:
 
 - A Streamlit control panel for configuration and service startup.
 - Thumbnail and `library.json` generation.
-- A small FastAPI API used by the iOS demo.
+- A FastAPI API used by the iOS demo for manifest loading, file access, rescans, and unpack jobs.
 - Optional localhost-only miniserve startup for local testing.
 - RePKG unpacking on demand with the same default behavior used by the macOS wallpaper pipeline: `extract -o <output> -s --overwrite <pkg>`.
 
@@ -54,9 +54,11 @@ In the Streamlit page:
 1. Use `Browse` to choose the wallpaper library folder.
 2. Use `Browse` to choose `RePKG.exe` and `miniserve.exe` if they are not on `PATH`.
 3. Optionally choose `ffmpeg.exe`.
-4. Click `Generate thumbnails + manifest`.
-5. Click `Start API server`.
-6. Optional: click `Start miniserve` only for local testing on the Windows PC.
+4. Set `API username` and `API password` if you want Basic Auth.
+5. Leave `Public static base URL` blank for the normal iOS workflow.
+6. Click `Generate thumbnails + manifest`.
+7. Click `Start API server`.
+8. Optional: click `Start miniserve` only for local testing on the Windows PC.
 
 Tailscale is the recommended remote-access path. Join the Windows PC and iPhone to the same tailnet, keep `API host` as `0.0.0.0`, and use the `iOS Settings URL` shown in Streamlit. It should look like `http://100.x.y.z:8090`.
 
@@ -68,11 +70,13 @@ Set `API username` and `API password` in Streamlit before starting the API serve
 
 Leaving both API auth fields blank disables API authentication. The password is stored in the local demo `server-config.json`, so treat this as demo-level protection rather than a production secret store.
 
+The iOS demo sends the same Basic Auth credentials for manifest requests, unpack requests, thumbnail downloads, video previews, and Save to Photos downloads.
+
 ## Library Access
 
 Leave `Public static base URL` blank for the normal iOS workflow. In this mode, iOS downloads thumbnails and media through the API `/files/...` endpoint, and the API only serves files that are already published in `library.json`. Other files under the wallpaper library root, such as `project.json`, `.pkg` packages, and unrelated source files, are not exposed through `/files`.
 
-The optional miniserve launcher binds to `127.0.0.1` so other devices on the LAN cannot browse the wallpaper directory through miniserve. It is intended only as a local debugging tool on the Windows PC.
+The optional miniserve launcher binds to `127.0.0.1` so other devices on the LAN cannot browse the wallpaper directory through miniserve. It is intended only as a local debugging tool on the Windows PC. The normal iOS flow does not need miniserve.
 
 ## About ffmpeg
 

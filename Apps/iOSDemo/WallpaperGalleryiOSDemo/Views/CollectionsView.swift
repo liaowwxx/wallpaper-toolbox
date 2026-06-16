@@ -7,14 +7,31 @@ struct CollectionsView: View {
         List {
             Section {
                 Button {
-                    library.selectedCollection = nil
+                    library.clearFilters()
                     library.selectedTab = .library
                 } label: {
                     CollectionRow(
                         title: "All Wallpapers",
+                        systemImage: "square.grid.2x2",
                         count: library.items.count,
-                        isSelected: library.selectedCollection == nil
+                        isSelected: library.activeFilterCount == 0
                     )
+                }
+            }
+
+            Section("Types") {
+                ForEach(library.availableTypes, id: \.self) { type in
+                    Button {
+                        library.selectedType = library.selectedType == type ? nil : type
+                        library.selectedTab = .library
+                    } label: {
+                        CollectionRow(
+                            title: type.label,
+                            systemImage: type.icon,
+                            count: library.items.filter { $0.type == type }.count,
+                            isSelected: library.selectedType == type
+                        )
+                    }
                 }
             }
 
@@ -26,6 +43,7 @@ struct CollectionsView: View {
                     } label: {
                         CollectionRow(
                             title: collection,
+                            systemImage: "rectangle.stack",
                             count: library.items.filter { $0.collections.contains(collection) }.count,
                             isSelected: library.selectedCollection == collection
                         )
@@ -34,7 +52,7 @@ struct CollectionsView: View {
             }
 
             Section("Tags") {
-                TagCloud(tags: Array(Set(library.items.flatMap(\.tags))).sorted())
+                TagCloud(tags: library.allTags)
             }
         }
         .navigationTitle("Collections")
@@ -52,12 +70,13 @@ struct CollectionsView: View {
 
 private struct CollectionRow: View {
     let title: String
+    let systemImage: String
     let count: Int
     let isSelected: Bool
 
     var body: some View {
         HStack {
-            Label(title, systemImage: isSelected ? "checkmark.circle.fill" : "rectangle.stack")
+            Label(title, systemImage: isSelected ? "checkmark.circle.fill" : systemImage)
             Spacer()
             Text(count, format: .number)
                 .foregroundStyle(.secondary)
@@ -67,16 +86,25 @@ private struct CollectionRow: View {
 }
 
 private struct TagCloud: View {
+    @Environment(RemoteLibraryViewModel.self) private var library
+
     let tags: [String]
 
     var body: some View {
         FlowLayout(spacing: 8) {
             ForEach(tags, id: \.self) { tag in
-                Text(tag)
-                    .font(.caption.weight(.medium))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(.thinMaterial, in: .capsule)
+                Button {
+                    library.selectedTag = library.selectedTag == tag ? nil : tag
+                    library.selectedTab = .library
+                } label: {
+                    Label(tag, systemImage: library.selectedTag == tag ? "checkmark.circle.fill" : "tag")
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(library.selectedTag == tag ? Color.accentColor.opacity(0.16) : Color.secondary.opacity(0.10), in: .capsule)
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(library.selectedTag == tag ? .isSelected : [])
             }
         }
         .padding(.vertical, 4)

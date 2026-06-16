@@ -27,6 +27,9 @@ from .models import (
 )
 
 
+THUMBNAIL_GENERATOR_VERSION = "2"
+
+
 @dataclass
 class BuildResult:
     manifest: dict[str, Any]
@@ -238,14 +241,22 @@ def first_asset_path(root: Path, assets: list[AssetInfo]) -> Optional[Path]:
 
 def generate_thumbnail(config: ServerConfig, item_id: str, source: Path) -> Optional[str]:
     output = config.thumbs_path / f"{item_id}.jpg"
-    if output.exists() and output.stat().st_mtime >= source.stat().st_mtime:
+    version_path = output.with_suffix(".version")
+    if (
+        output.exists()
+        and output.stat().st_mtime >= source.stat().st_mtime
+        and version_path.exists()
+        and version_path.read_text(encoding="utf-8").strip() == THUMBNAIL_GENERATOR_VERSION
+    ):
         return output.relative_to(config.root_path).as_posix()
 
     if source.suffix.lower() in IMAGE_EXTENSIONS:
         if generate_image_thumbnail(source, output):
+            version_path.write_text(THUMBNAIL_GENERATOR_VERSION, encoding="utf-8")
             return output.relative_to(config.root_path).as_posix()
 
     if generate_video_thumbnail(config, source, output):
+        version_path.write_text(THUMBNAIL_GENERATOR_VERSION, encoding="utf-8")
         return output.relative_to(config.root_path).as_posix()
 
     return None
@@ -255,13 +266,20 @@ def generate_image_thumbnail(source: Path, output: Path) -> bool:
     try:
         output.parent.mkdir(parents=True, exist_ok=True)
         with Image.open(source) as image:
+            try:
+                image.seek(0)
+            except EOFError:
+                pass
             image = ImageOps.exif_transpose(image)
-            image.thumbnail((512, 512))
-            canvas = Image.new("RGB", (512, 512), (24, 24, 28))
-            x = (512 - image.width) // 2
-            y = (512 - image.height) // 2
-            canvas.paste(image.convert("RGB"), (x, y))
-            canvas.save(output, "JPEG", quality=86, optimize=True)
+            if image.mode in ("RGBA", "LA") or "transparency" in image.info:
+                image = image.convert("RGBA")
+                background = Image.new("RGBA", image.size, (24, 24, 28, 255))
+                background.alpha_composite(image)
+                image = background.convert("RGB")
+            else:
+                image = image.convert("RGB")
+            thumbnail = ImageOps.fit(image, (512, 512), method=Image.Resampling.LANCZOS)
+            thumbnail.save(output, "JPEG", quality=86, optimize=True)
         return True
     except Exception:
         return False

@@ -10,6 +10,8 @@ final class RemoteLibraryViewModel {
     var password = ""
     var query = ""
     var selectedCollection: String?
+    var selectedTag: String?
+    var selectedType: WallpaperKind?
     var manifest: RemoteLibraryManifest?
     var baseURL: URL?
     var isLoading = false
@@ -30,10 +32,12 @@ final class RemoteLibraryViewModel {
         let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return items.filter { item in
             let matchesCollection = selectedCollection == nil || item.collections.contains(selectedCollection!)
+            let matchesTag = selectedTag == nil || item.tags.contains(selectedTag!)
+            let matchesType = selectedType == nil || item.type == selectedType
             let matchesQuery = normalizedQuery.isEmpty
                 || item.title.lowercased().contains(normalizedQuery)
                 || item.tags.contains { $0.lowercased().contains(normalizedQuery) }
-            return matchesCollection && matchesQuery
+            return matchesCollection && matchesTag && matchesType && matchesQuery
         }
     }
 
@@ -43,6 +47,20 @@ final class RemoteLibraryViewModel {
 
     var allCollections: [String] {
         Array(Set(items.flatMap(\.collections))).sorted()
+    }
+
+    var allTags: [String] {
+        Array(Set(items.flatMap(\.tags))).sorted()
+    }
+
+    var availableTypes: [WallpaperKind] {
+        let preferred: [WallpaperKind] = [.video, .image, .scene, .web, .application, .unknown]
+        let present = Set(items.map(\.type))
+        return preferred.filter { present.contains($0) }
+    }
+
+    var activeFilterCount: Int {
+        [selectedCollection, selectedTag].compactMap { $0 }.count + (selectedType == nil ? 0 : 1)
     }
 
     var canTriggerUnpack: Bool {
@@ -55,6 +73,12 @@ final class RemoteLibraryViewModel {
 
     func item(withID id: String) -> RemoteWallpaperItem? {
         items.first { $0.id == id }
+    }
+
+    func clearFilters() {
+        selectedCollection = nil
+        selectedTag = nil
+        selectedType = nil
     }
 
     func connect() async {
