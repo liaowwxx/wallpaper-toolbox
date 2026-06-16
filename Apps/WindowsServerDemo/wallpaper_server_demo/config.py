@@ -18,6 +18,8 @@ class ServerConfig:
     ffmpeg_path: str = "ffmpeg"
     api_host: str = "0.0.0.0"
     api_port: int = 8090
+    api_username: str = ""
+    api_password: str = ""
     public_api_base_url: str = "http://localhost:8090"
     public_static_base_url: str = ""
     miniserve_path: str = "miniserve.exe"

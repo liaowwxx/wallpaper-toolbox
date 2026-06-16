@@ -122,6 +122,8 @@ private extension View {
 }
 
 private struct AssetPreview: View {
+    @Environment(RemoteLibraryViewModel.self) private var library
+
     let asset: RemoteAsset?
     let thumbnailURL: URL?
     let baseURL: URL?
@@ -132,7 +134,7 @@ private struct AssetPreview: View {
             if let asset,
                asset.kind == .video,
                let url = asset.resolvedURL(relativeTo: baseURL) {
-                VideoPlayer(player: AVPlayer(url: url))
+                AuthenticatedVideoPlayer(url: url, authorizationHeader: library.authorizationHeader)
             } else {
                 ThumbnailImage(url: thumbnailURL ?? asset?.resolvedURL(relativeTo: baseURL), fallbackIcon: fallbackIcon)
             }
@@ -141,6 +143,42 @@ private struct AssetPreview: View {
         .aspectRatio(16.0 / 9.0, contentMode: .fit)
         .background(.secondary.opacity(0.10), in: .rect(cornerRadius: 8))
         .clipShape(.rect(cornerRadius: 8))
+    }
+}
+
+private struct AuthenticatedVideoPlayer: View {
+    let url: URL
+    let authorizationHeader: String?
+    @State private var player: AVPlayer?
+
+    var body: some View {
+        Group {
+            if let player {
+                VideoPlayer(player: player)
+            } else {
+                ProgressView()
+            }
+        }
+        .task(id: playerID) {
+            player?.pause()
+            player = makePlayer()
+        }
+        .onDisappear {
+            player?.pause()
+        }
+    }
+
+    private var playerID: String {
+        "\(url.absoluteString)|\(authorizationHeader ?? "")"
+    }
+
+    private func makePlayer() -> AVPlayer {
+        var options: [String: Any] = [:]
+        if let authorizationHeader {
+            options["AVURLAssetHTTPHeaderFieldsKey"] = ["Authorization": authorizationHeader]
+        }
+        let asset = AVURLAsset(url: url, options: options.isEmpty ? nil : options)
+        return AVPlayer(playerItem: AVPlayerItem(asset: asset))
     }
 }
 

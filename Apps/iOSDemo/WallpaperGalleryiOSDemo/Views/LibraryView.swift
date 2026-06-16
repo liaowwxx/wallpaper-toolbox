@@ -1,4 +1,8 @@
+import Foundation
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 struct LibraryView: View {
     @Environment(RemoteLibraryViewModel.self) private var library
@@ -97,23 +101,30 @@ private struct RemoteWallpaperCard: View {
 }
 
 struct ThumbnailImage: View {
+    @Environment(RemoteLibraryViewModel.self) private var library
+
     let url: URL?
     let fallbackIcon: String
+    @State private var image: Image?
 
     var body: some View {
-        AsyncImage(url: url) { phase in
-            switch phase {
-            case .success(let image):
+        Group {
+            if let image {
                 image
                     .resizable()
                     .scaledToFill()
-            case .failure, .empty:
-                placeholder
-            @unknown default:
+            } else {
                 placeholder
             }
         }
+        .task(id: loadID) {
+            await loadImage()
+        }
         .clipped()
+    }
+
+    private var loadID: String {
+        "\(url?.absoluteString ?? "")|\(library.authorizationHeader ?? "")"
     }
 
     private var placeholder: some View {
@@ -126,6 +137,31 @@ struct ThumbnailImage: View {
             Image(systemName: fallbackIcon)
                 .font(.system(size: 38, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.86))
+        }
+    }
+
+    @MainActor
+    private func loadImage() async {
+        image = nil
+        guard let url else { return }
+
+        var request = URLRequest(url: url)
+        if let authorizationHeader = library.authorizationHeader {
+            request.setValue(authorizationHeader, forHTTPHeaderField: "Authorization")
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse,
+                  (200..<300).contains(http.statusCode) else {
+                return
+            }
+            #if os(iOS)
+            guard let uiImage = UIImage(data: data) else { return }
+            image = Image(uiImage: uiImage)
+            #endif
+        } catch {
+            image = nil
         }
     }
 }

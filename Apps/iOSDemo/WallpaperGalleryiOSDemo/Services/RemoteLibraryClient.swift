@@ -29,9 +29,14 @@ struct RemoteLibraryClient {
     }
 
     private func applyAuth(to request: inout URLRequest) {
-        guard !username.isEmpty || !password.isEmpty else { return }
+        guard let header = Self.authorizationHeader(username: username, password: password) else { return }
+        request.setValue(header, forHTTPHeaderField: "Authorization")
+    }
+
+    static func authorizationHeader(username: String, password: String) -> String? {
+        guard !username.isEmpty || !password.isEmpty else { return nil }
         let token = "\(username):\(password)".data(using: .utf8)?.base64EncodedString() ?? ""
-        request.setValue("Basic \(token)", forHTTPHeaderField: "Authorization")
+        return "Basic \(token)"
     }
 
     private func validate(_ response: URLResponse) throws {

@@ -5,7 +5,7 @@ import Observation
 @Observable
 final class RemoteLibraryViewModel {
     var selectedTab: AppTab = .library
-    var serverURLText = Self.defaultServerURL
+    var serverURLText: String
     var username = ""
     var password = ""
     var query = ""
@@ -21,6 +21,7 @@ final class RemoteLibraryViewModel {
     @ObservationIgnored private let defaults = UserDefaults.standard
 
     init() {
+        serverURLText = defaultRemoteServerURL
         username = defaults.string(forKey: DefaultsKey.username) ?? ""
         password = defaults.string(forKey: DefaultsKey.password) ?? ""
     }
@@ -46,6 +47,10 @@ final class RemoteLibraryViewModel {
 
     var canTriggerUnpack: Bool {
         manifest?.supportsUnpackJobs == true
+    }
+
+    var authorizationHeader: String? {
+        RemoteLibraryClient.authorizationHeader(username: username, password: password)
     }
 
     func item(withID id: String) -> RemoteWallpaperItem? {
@@ -127,7 +132,7 @@ final class RemoteLibraryViewModel {
         defer { savingAssetID = nil }
 
         do {
-            try await PhotoAssetExporter.save(asset: asset, baseURL: baseURL)
+            try await PhotoAssetExporter.save(asset: asset, baseURL: baseURL, authorizationHeader: authorizationHeader)
             statusMessage = "\(asset.name) saved to Photos"
             errorMessage = nil
         } catch {
@@ -171,3 +176,5 @@ private enum DefaultsKey {
     static let username = "RemoteLibrary.username"
     static let password = "RemoteLibrary.password"
 }
+
+private let defaultRemoteServerURL = "http://100.100.223.106:8090"

@@ -6,7 +6,7 @@ import UIKit
 #endif
 
 enum PhotoAssetExporter {
-    static func save(asset: RemoteAsset, baseURL: URL?) async throws {
+    static func save(asset: RemoteAsset, baseURL: URL?, authorizationHeader: String?) async throws {
         guard let remoteURL = asset.resolvedURL(relativeTo: baseURL) else {
             throw RemoteLibraryError.missingAssetURL
         }
@@ -14,7 +14,11 @@ enum PhotoAssetExporter {
         #if os(iOS)
         let session = URLSession(configuration: .wallpaperDownload)
         defer { session.finishTasksAndInvalidate() }
-        let (localURL, response) = try await session.download(from: remoteURL)
+        var request = URLRequest(url: remoteURL)
+        if let authorizationHeader {
+            request.setValue(authorizationHeader, forHTTPHeaderField: "Authorization")
+        }
+        let (localURL, response) = try await session.download(for: request)
         try validate(response)
 
         try await PHPhotoLibrary.requestAuthorization(for: .addOnly)

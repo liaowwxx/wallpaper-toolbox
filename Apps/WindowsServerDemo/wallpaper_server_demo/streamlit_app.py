@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from base64 import b64encode
 from pathlib import Path
 from typing import Optional
 import importlib.util
@@ -56,6 +57,14 @@ def render_config_form(config: ServerConfig) -> ServerConfig:
     with col3:
         st.number_input("miniserve port", key="miniserve_port", min_value=1, max_value=65535)
 
+    auth_col1, auth_col2 = st.columns(2)
+    with auth_col1:
+        st.text_input("API username", key="api_username")
+    with auth_col2:
+        st.text_input("API password", key="api_password", type="password")
+    if not st.session_state.api_username and not st.session_state.api_password:
+        st.warning("API Basic Auth is disabled. Set an API username/password to require login from iOS.")
+
     suggested_host = get_recommended_host()
     st.text_input(
         "Public API base URL for iOS (Tailscale preferred)",
@@ -65,7 +74,7 @@ def render_config_form(config: ServerConfig) -> ServerConfig:
     st.text_input(
         "Public static base URL",
         key="public_static_base_url",
-        placeholder=f"http://{suggested_host}:{int(st.session_state.miniserve_port)} (optional; blank uses API /files)",
+        placeholder="Leave blank to keep files behind the API allow-list",
     )
     st.text_input("miniserve auth user:password", key="miniserve_auth")
 
@@ -75,6 +84,8 @@ def render_config_form(config: ServerConfig) -> ServerConfig:
         ffmpeg_path=st.session_state.ffmpeg_path.strip() or "ffmpeg",
         api_host=st.session_state.api_host.strip() or "0.0.0.0",
         api_port=int(st.session_state.api_port),
+        api_username=st.session_state.api_username.strip(),
+        api_password=st.session_state.api_password,
         public_api_base_url=st.session_state.public_api_base_url.strip().rstrip("/"),
         public_static_base_url=st.session_state.public_static_base_url.strip().rstrip("/"),
         miniserve_path=st.session_state.miniserve_path.strip() or "miniserve.exe",
@@ -96,6 +107,8 @@ def initialize_session_state(config: ServerConfig) -> None:
         "ffmpeg_path": config.ffmpeg_path,
         "api_host": config.api_host,
         "api_port": config.api_port,
+        "api_username": config.api_username,
+        "api_password": config.api_password,
         "public_api_base_url": config.public_api_base_url,
         "public_static_base_url": config.public_static_base_url,
         "miniserve_path": config.miniserve_path,
@@ -181,6 +194,8 @@ def render_actions(config: ServerConfig) -> None:
         f"iOS Settings URL: {config.normalized_public_api_base_url or f'http://{get_recommended_host()}:{config.api_port}'}",
         language="text",
     )
+    if config.api_username or config.api_password:
+        st.caption("API Basic Auth is enabled. Enter the same username/password in the iOS settings screen.")
 
 
 def render_library_preview(config: ServerConfig) -> None:
@@ -273,7 +288,7 @@ def start_miniserve(config: ServerConfig) -> None:
     command = [
         config.miniserve_path,
         "-i",
-        "0.0.0.0",
+        "127.0.0.1",
         "-p",
         str(config.miniserve_port),
         "--qrcode",
@@ -285,17 +300,25 @@ def start_miniserve(config: ServerConfig) -> None:
 
     st.session_state["miniserve_process"] = subprocess.Popen(command, cwd=DEMO_ROOT)
     time.sleep(0.8)
-    st.success(f"miniserve started on port {config.miniserve_port}")
+    st.success(f"miniserve started on 127.0.0.1:{config.miniserve_port} for local testing only")
 
 
 def call_rescan(config: ServerConfig) -> None:
     url = f"{config.normalized_public_api_base_url}/api/library/rescan"
     request = urllib.request.Request(url, method="POST")
+    apply_api_auth(request, config)
     try:
         with urllib.request.urlopen(request, timeout=20) as response:
             st.success(f"API rescan returned HTTP {response.status}")
     except urllib.error.URLError as error:
         st.error(f"API rescan failed: {error}")
+
+
+def apply_api_auth(request: urllib.request.Request, config: ServerConfig) -> None:
+    if not config.api_username and not config.api_password:
+        return
+    token = b64encode(f"{config.api_username}:{config.api_password}".encode("utf-8")).decode("ascii")
+    request.add_header("Authorization", f"Basic {token}")
 
 
 def choose_directory(title: str, initial_value: str) -> str:

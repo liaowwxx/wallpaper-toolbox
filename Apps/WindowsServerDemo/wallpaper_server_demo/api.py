@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+from base64 import b64decode
+from binascii import Error as Base64Error
+from hmac import compare_digest
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import unquote, urlparse, urlunparse
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
-from .config import load_config
+from .config import ServerConfig, load_config
 from .library import build_and_write_manifest, load_manifest, scan_library, unpack_wallpaper
 
 
@@ -22,6 +25,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def basic_auth_middleware(request: Request, call_next):
+    config = load_config()
+    if not is_api_auth_enabled(config) or is_authorized(request, config):
+        return await call_next(request)
+    return Response(
+        status_code=401,
+        headers={"WWW-Authenticate": 'Basic realm="Wallpaper Gallery"'},
+    )
 
 
 @app.get("/api/status")
@@ -86,7 +100,10 @@ def rescan() -> dict[str, Any]:
 @app.get("/files/{relative_path:path}")
 def file(relative_path: str) -> FileResponse:
     config = require_config()
-    target = safe_library_path(config.root_path, relative_path)
+    normalized_path = normalize_manifest_relative_path(relative_path)
+    if normalized_path not in allowed_file_paths(config):
+        raise HTTPException(status_code=403, detail="File is not published by the manifest")
+    target = safe_library_path(config.root_path, normalized_path)
     if not target.exists() or not target.is_file():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(target)
@@ -117,6 +134,36 @@ def require_config():
     return config
 
 
+def is_api_auth_enabled(config: ServerConfig) -> bool:
+    return bool(config.api_username or config.api_password)
+
+
+def is_authorized(request: Request, config: ServerConfig) -> bool:
+    credentials = parse_basic_auth(request.headers.get("authorization", ""))
+    if credentials is None:
+        return False
+    username, password = credentials
+    return constant_time_equals(username, config.api_username) and constant_time_equals(password, config.api_password)
+
+
+def parse_basic_auth(value: str) -> tuple[str, str] | None:
+    scheme, _, encoded = value.partition(" ")
+    if scheme.lower() != "basic" or not encoded:
+        return None
+    try:
+        decoded = b64decode(encoded, validate=True).decode("utf-8")
+    except (Base64Error, UnicodeDecodeError):
+        return None
+    username, separator, password = decoded.partition(":")
+    if not separator:
+        return None
+    return username, password
+
+
+def constant_time_equals(value: str, expected: str) -> bool:
+    return compare_digest(value.encode("utf-8"), expected.encode("utf-8"))
+
+
 def safe_library_path(root: Path, relative_path: str) -> Path:
     target = (root / relative_path).resolve()
     try:
@@ -124,6 +171,30 @@ def safe_library_path(root: Path, relative_path: str) -> Path:
     except ValueError as error:
         raise HTTPException(status_code=403, detail="Path escapes library root") from error
     return target
+
+
+def allowed_file_paths(config: ServerConfig) -> set[str]:
+    manifest = load_manifest(config)
+    allowed: set[str] = set()
+    for item in manifest.get("items", []):
+        add_manifest_file_path(allowed, item.get("thumbnail"))
+        for asset in item.get("assets", []):
+            add_manifest_file_path(allowed, asset.get("url"))
+    return allowed
+
+
+def add_manifest_file_path(allowed: set[str], value: Any) -> None:
+    if not isinstance(value, str) or not value:
+        return
+    parsed = urlparse(value)
+    path = parsed.path if parsed.scheme or parsed.netloc else value
+    if not path.startswith("/files/"):
+        return
+    allowed.add(normalize_manifest_relative_path(path.removeprefix("/files/")))
+
+
+def normalize_manifest_relative_path(value: str) -> str:
+    return unquote(value).replace("\\", "/").lstrip("/")
 
 
 def manifest_for_request(manifest: dict[str, Any], request: Request) -> dict[str, Any]:
