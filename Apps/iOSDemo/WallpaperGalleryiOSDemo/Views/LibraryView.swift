@@ -6,53 +6,34 @@ import UIKit
 
 struct LibraryView: View {
     @Environment(RemoteLibraryViewModel.self) private var library
-    @State private var baseCardWidth: CGFloat = 156
+    @State private var baseTileSize: CGFloat = 112
     @GestureState private var magnification: CGFloat = 1.0
 
-    private var cardWidth: CGFloat {
-        clampedCardWidth(baseCardWidth * magnification)
+    private var tileSize: CGFloat {
+        clampedTileSize(baseTileSize * magnification)
     }
 
     private var columns: [GridItem] {
         [
-            GridItem(.adaptive(minimum: cardWidth, maximum: cardWidth), spacing: 12)
+            GridItem(.adaptive(minimum: tileSize, maximum: tileSize), spacing: Self.tileSpacing)
         ]
     }
 
     var body: some View {
         @Bindable var library = library
 
-        ScrollView {
-            LibraryFilterBar()
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-
-            LazyVGrid(columns: columns, spacing: 12) {
-                ForEach(library.filteredItems) { item in
-                    NavigationLink(value: item) {
-                        RemoteWallpaperCard(item: item, baseURL: library.baseURL, cardWidth: cardWidth)
-                    }
-                    .buttonStyle(.plain)
+        NavigationSplitView {
+            LibrarySidebar()
+                .navigationTitle("Library")
+                .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 360)
+        } detail: {
+            libraryGrid
+                .navigationTitle("Wallpapers")
+                .navigationDestination(for: RemoteWallpaperItem.self) { item in
+                    WallpaperDetailView(item: item)
                 }
-            }
-            .padding(16)
-            .contentShape(.rect)
-            .simultaneousGesture(zoomGesture)
         }
-        .navigationTitle("Library")
         .searchable(text: $library.query, prompt: "Search wallpapers")
-        .navigationDestination(for: RemoteWallpaperItem.self) { item in
-            WallpaperDetailView(item: item)
-        }
-        .overlay {
-            if library.filteredItems.isEmpty {
-                ContentUnavailableView(
-                    "No Wallpapers",
-                    systemImage: "photo.on.rectangle.angled",
-                    description: Text("Connect to a Windows library or clear the current filter.")
-                )
-            }
-        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -67,148 +48,265 @@ struct LibraryView: View {
         .statusOverlay()
     }
 
+    private var libraryGrid: some View {
+        ScrollView {
+            LazyVGrid(columns: columns, spacing: Self.tileSpacing) {
+                ForEach(library.filteredItems) { item in
+                    NavigationLink(value: item) {
+                        RemoteWallpaperTile(item: item, baseURL: library.baseURL, tileSize: tileSize)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(Self.tileSpacing)
+            .contentShape(.rect)
+            .transaction { transaction in
+                transaction.animation = nil
+            }
+        }
+        .highPriorityGesture(zoomGesture)
+        .overlay {
+            if library.filteredItems.isEmpty {
+                ContentUnavailableView(
+                    "No Wallpapers",
+                    systemImage: "photo.on.rectangle.angled",
+                    description: Text("Connect to a Windows library or clear the current filter.")
+                )
+            }
+        }
+    }
+
     private var zoomGesture: some Gesture {
         MagnifyGesture()
             .updating($magnification) { value, state, _ in
                 state = value.magnification
             }
             .onEnded { value in
-                baseCardWidth = clampedCardWidth(baseCardWidth * value.magnification)
+                baseTileSize = clampedTileSize(baseTileSize * value.magnification)
             }
     }
 
-    private func clampedCardWidth(_ value: CGFloat) -> CGFloat {
-        min(260, max(96, value))
+    private func clampedTileSize(_ value: CGFloat) -> CGFloat {
+        min(220, max(64, value))
+    }
+
+    private static let tileSpacing: CGFloat = 2
+}
+
+private struct LibrarySidebar: View {
+    var body: some View {
+        List {
+            SidebarFiltersSection()
+            SidebarConnectionSection()
+            SidebarActionsSection()
+            SidebarCapabilitiesSection()
+            SidebarLatestJobSection()
+        }
+        .listStyle(.sidebar)
     }
 }
 
-private struct LibraryFilterBar: View {
+private struct SidebarFiltersSection: View {
+    @Environment(RemoteLibraryViewModel.self) private var library
+    @State private var showMatureWarning = false
+
+    var body: some View {
+        Group {
+            Section("Type") {
+                Picker("Filter by type", selection: typeBinding) {
+                    Label("All", systemImage: "square.grid.2x2").tag("All")
+                    ForEach(library.availableTypes, id: \.self) { type in
+                        Label(type.label, systemImage: type.icon).tag(type.rawValue)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+
+            Section("Rating") {
+                Picker("Filter by rating", selection: ratingBinding) {
+                    Label("All", systemImage: "square.grid.2x2").tag("All")
+                    ForEach(ContentRating.allCases, id: \.self) { rating in
+                        Label(rating.label, systemImage: rating.icon).tag(rating.filterValue)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+            .alert("Mature Content", isPresented: $showMatureWarning) {
+                Button("Cancel", role: .cancel) { }
+                Button("Show Mature Content") {
+                    library.selectedRating = .mature
+                }
+            } message: {
+                Text("This will display content marked as Mature. Are you sure?")
+            }
+        }
+    }
+
+    private var typeBinding: Binding<String> {
+        Binding(
+            get: { library.selectedType?.rawValue ?? "All" },
+            set: { value in
+                if value == "All" {
+                    library.selectedType = nil
+                } else {
+                    library.selectedType = WallpaperKind(rawValue: value) ?? .unknown
+                }
+            }
+        )
+    }
+
+    private var ratingBinding: Binding<String> {
+        Binding(
+            get: { library.selectedRating?.filterValue ?? "All" },
+            set: { value in
+                if value == "Mature" {
+                    showMatureWarning = true
+                } else if value == "All" {
+                    library.selectedRating = nil
+                } else {
+                    library.selectedRating = ContentRating(filterValue: value)
+                }
+            }
+        )
+    }
+}
+
+private struct SidebarConnectionSection: View {
     @Environment(RemoteLibraryViewModel.self) private var library
 
     var body: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 8) {
-                FilterChip(
-                    title: "All",
-                    systemImage: "square.grid.2x2",
-                    isSelected: library.activeFilterCount == 0
-                ) {
-                    library.clearFilters()
-                }
+        @Bindable var library = library
 
-                ForEach(library.availableTypes, id: \.self) { type in
-                    FilterChip(
-                        title: type.label,
-                        systemImage: type.icon,
-                        isSelected: library.selectedType == type
-                    ) {
-                        library.selectedType = library.selectedType == type ? nil : type
-                    }
-                }
+        Section {
+            TextField("Server URL", text: $library.serverURLText)
+                .serverURLInputStyle()
 
-                ForEach(library.allCollections, id: \.self) { collection in
-                    FilterChip(
-                        title: collection,
-                        systemImage: "rectangle.stack",
-                        isSelected: library.selectedCollection == collection
-                    ) {
-                        library.selectedCollection = library.selectedCollection == collection ? nil : collection
-                    }
-                }
+            TextField("Username", text: $library.username)
+                .plainCredentialInputStyle()
 
-                ForEach(library.allTags, id: \.self) { tag in
-                    FilterChip(
-                        title: tag,
-                        systemImage: "tag",
-                        isSelected: library.selectedTag == tag
-                    ) {
-                        library.selectedTag = library.selectedTag == tag ? nil : tag
-                    }
-                }
-            }
-            .padding(.vertical, 2)
+            SecureField("Password", text: $library.password)
+        } header: {
+            Text("Windows Library")
+        } footer: {
+            Text("Point this at the Windows API URL shown by the server control panel.")
         }
-        .scrollIndicators(.hidden)
     }
 }
 
-private struct FilterChip: View {
-    let title: String
-    let systemImage: String
-    let isSelected: Bool
-    let action: () -> Void
+private struct SidebarActionsSection: View {
+    @Environment(RemoteLibraryViewModel.self) private var library
 
     var body: some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(.caption.weight(.semibold))
-                .lineLimit(1)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(isSelected ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.10), in: .capsule)
-                .overlay {
-                    Capsule()
-                        .stroke(isSelected ? Color.accentColor : Color.secondary.opacity(0.18), lineWidth: 1)
-                }
+        Section {
+            Button {
+                Task { await library.connect() }
+            } label: {
+                Label("Connect", systemImage: "network")
+            }
+            .disabled(library.isLoading)
+
+            Button {
+                Task { await library.loadSampleLibrary() }
+            } label: {
+                Label("Load Sample Manifest", systemImage: "doc.badge.gearshape")
+            }
+            .disabled(library.isLoading)
         }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
-private struct RemoteWallpaperCard: View {
+private struct SidebarCapabilitiesSection: View {
+    @Environment(RemoteLibraryViewModel.self) private var library
+
+    var body: some View {
+        Section("Server Capabilities") {
+            CapabilityRow(
+                title: "Range streaming",
+                isEnabled: library.manifest?.supportsRangeStreaming == true
+            )
+            CapabilityRow(
+                title: "Remote unpack jobs",
+                isEnabled: library.manifest?.supportsUnpackJobs == true
+            )
+            LabeledContent("Schema") {
+                Text(library.manifest.map { "\($0.schemaVersion)" } ?? "Unknown")
+            }
+            LabeledContent("Server") {
+                Text(library.manifest?.serverVersion ?? "Unknown")
+            }
+        }
+    }
+}
+
+private struct SidebarLatestJobSection: View {
+    @Environment(RemoteLibraryViewModel.self) private var library
+
+    var body: some View {
+        if let job = library.latestJob {
+            Section("Latest Job") {
+                LabeledContent("Job") {
+                    Text(job.id)
+                }
+                LabeledContent("State") {
+                    Text(job.state)
+                }
+                if let message = job.message {
+                    Text(message)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+}
+
+private struct CapabilityRow: View {
+    let title: String
+    let isEnabled: Bool
+
+    var body: some View {
+        HStack {
+            Label(title, systemImage: isEnabled ? "checkmark.circle.fill" : "xmark.circle")
+                .foregroundStyle(isEnabled ? .primary : .secondary)
+            Spacer()
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func serverURLInputStyle() -> some View {
+        #if os(iOS)
+        keyboardType(.URL)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+        #else
+        self
+        #endif
+    }
+
+    @ViewBuilder
+    func plainCredentialInputStyle() -> some View {
+        #if os(iOS)
+        textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+        #else
+        self
+        #endif
+    }
+}
+
+private struct RemoteWallpaperTile: View {
     let item: RemoteWallpaperItem
     let baseURL: URL?
-    let cardWidth: CGFloat
-
-    private var previewSize: CGFloat {
-        max(80, cardWidth - 16)
-    }
-
-    private var cardHeight: CGFloat {
-        previewSize + 88
-    }
+    let tileSize: CGFloat
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ZStack(alignment: .topLeading) {
-                ThumbnailImage(url: item.thumbnailURL(relativeTo: baseURL), fallbackIcon: item.typeIcon)
-                    .frame(width: previewSize, height: previewSize)
-                    .clipShape(.rect(cornerRadius: 8))
-
-                Label(item.typeLabel, systemImage: item.typeIcon)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 4)
-                    .background(.black.opacity(0.58), in: .capsule)
-                    .padding(7)
-            }
-
-            Text(item.title)
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-                .frame(height: 38, alignment: .topLeading)
-
-            HStack(spacing: 6) {
-                Image(systemName: item.isUnpacked ? "checkmark.circle.fill" : "shippingbox")
-                    .foregroundStyle(item.isUnpacked ? .green : .orange)
-                Text(item.isUnpacked ? "Unpacked" : "Needs unpack")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            .frame(height: 18)
-        }
-        .padding(8)
-        .frame(width: cardWidth, height: cardHeight, alignment: .topLeading)
-        .background(.background, in: .rect(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(.quaternary, lineWidth: 1)
-        }
+        ThumbnailImage(url: item.thumbnailURL(relativeTo: baseURL), fallbackIcon: item.typeIcon)
+            .frame(width: tileSize, height: tileSize)
+            .contentShape(.rect)
+            .clipped()
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(item.title), \(item.typeLabel)")
     }

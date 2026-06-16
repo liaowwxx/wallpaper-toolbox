@@ -12,6 +12,7 @@ final class RemoteLibraryViewModel {
     var selectedCollection: String?
     var selectedTag: String?
     var selectedType: WallpaperKind?
+    var selectedRating: ContentRating? = .everyone
     var manifest: RemoteLibraryManifest?
     var baseURL: URL?
     var isLoading = false
@@ -31,13 +32,12 @@ final class RemoteLibraryViewModel {
     var filteredItems: [RemoteWallpaperItem] {
         let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return items.filter { item in
-            let matchesCollection = selectedCollection == nil || item.collections.contains(selectedCollection!)
-            let matchesTag = selectedTag == nil || item.tags.contains(selectedTag!)
             let matchesType = selectedType == nil || item.type == selectedType
+            let matchesRating = selectedRating == nil || item.contentRating == selectedRating
             let matchesQuery = normalizedQuery.isEmpty
                 || item.title.lowercased().contains(normalizedQuery)
                 || item.tags.contains { $0.lowercased().contains(normalizedQuery) }
-            return matchesCollection && matchesTag && matchesType && matchesQuery
+            return matchesType && matchesRating && matchesQuery
         }
     }
 
@@ -54,13 +54,19 @@ final class RemoteLibraryViewModel {
     }
 
     var availableTypes: [WallpaperKind] {
-        let preferred: [WallpaperKind] = [.video, .image, .scene, .web, .application, .unknown]
+        let preferred: [WallpaperKind] = [.pkg, .video, .image, .scene, .web, .application, .unknown]
         let present = Set(items.map(\.type))
         return preferred.filter { present.contains($0) }
     }
 
+    var availableRatings: [ContentRating] {
+        let preferred: [ContentRating] = [.everyone, .questionable, .mature]
+        let present = Set(items.map(\.contentRating))
+        return preferred.filter { present.contains($0) || $0 == .everyone }
+    }
+
     var activeFilterCount: Int {
-        [selectedCollection, selectedTag].compactMap { $0 }.count + (selectedType == nil ? 0 : 1)
+        (selectedType == nil ? 0 : 1) + (selectedRating == nil ? 0 : 1)
     }
 
     var canTriggerUnpack: Bool {
@@ -79,6 +85,7 @@ final class RemoteLibraryViewModel {
         selectedCollection = nil
         selectedTag = nil
         selectedType = nil
+        selectedRating = nil
     }
 
     func connect() async {

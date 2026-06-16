@@ -44,6 +44,7 @@ class ProjectInfo:
     title: Optional[str] = None
     type: Optional[str] = None
     file: Optional[str] = None
+    content_rating: str = "Everyone"
     tags: list[str] = field(default_factory=list)
     collections: list[str] = field(default_factory=list)
 
@@ -77,6 +78,7 @@ class WallpaperRecord:
     preview_path: Optional[Path]
     thumbnail_relative_path: Optional[str]
     is_unpacked: bool
+    content_rating: str
     tags: list[str]
     collections: list[str]
     assets: list[AssetInfo]
@@ -88,6 +90,7 @@ class WallpaperRecord:
             "type": self.type,
             "thumbnail": thumbnail_url,
             "isUnpacked": self.is_unpacked,
+            "contentRating": self.content_rating,
             "tags": self.tags,
             "collections": self.collections,
             "assets": assets,
@@ -110,9 +113,19 @@ def read_project_info(directory: Path) -> ProjectInfo:
         title=data.get("title"),
         type=(data.get("type") or "").lower() or None,
         file=data.get("file"),
+        content_rating=normalize_content_rating(data.get("contentrating") or data.get("contentRating")),
         tags=[str(tag) for tag in tags if str(tag).strip()],
         collections=[str(item) for item in collections if str(item).strip()],
     )
+
+
+def normalize_content_rating(value: Any) -> str:
+    normalized = str(value or "Everyone").strip().lower()
+    if normalized == "mature":
+        return "Mature"
+    if normalized == "questionable":
+        return "Questionable"
+    return "Everyone"
 
 
 def stable_id(relative_dir: str) -> str:

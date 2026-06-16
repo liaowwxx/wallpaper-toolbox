@@ -10,6 +10,7 @@
       "type": "video",
       "thumbnail": "/thumbs/281990.jpg",
       "isUnpacked": true,
+      "contentRating": "Everyone",
       "tags": ["city", "rain", "night"],
       "collections": ["Favorites", "Mood"],
       "assets": [
@@ -28,6 +29,7 @@
       "type": "image",
       "thumbnail": "/thumbs/843221.jpg",
       "isUnpacked": true,
+      "contentRating": "Everyone",
       "tags": ["nature", "lake", "calm"],
       "collections": ["Relax"],
       "assets": [
@@ -46,6 +48,7 @@
       "type": "scene",
       "thumbnail": "/thumbs/991204.jpg",
       "isUnpacked": false,
+      "contentRating": "Questionable",
       "tags": ["cyberpunk", "neon", "city"],
       "collections": ["Favorites"],
       "assets": []
@@ -56,6 +59,7 @@
       "type": "video",
       "thumbnail": "/thumbs/155010.jpg",
       "isUnpacked": true,
+      "contentRating": "Mature",
       "tags": ["ocean", "loop", "blue"],
       "collections": ["Relax", "Video"],
       "assets": [

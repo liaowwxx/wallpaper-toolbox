@@ -2,7 +2,6 @@ import Foundation
 
 enum AppTab: Hashable {
     case library
-    case collections
     case settings
 }
 
@@ -33,9 +32,35 @@ struct RemoteWallpaperItem: Decodable, Identifiable, Hashable {
     let type: WallpaperKind
     let thumbnail: String?
     let isUnpacked: Bool
+    let contentRating: ContentRating
     let tags: [String]
     let collections: [String]
     let assets: [RemoteAsset]
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case type
+        case thumbnail
+        case isUnpacked
+        case contentRating
+        case tags
+        case collections
+        case assets
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        type = try container.decode(WallpaperKind.self, forKey: .type)
+        thumbnail = try container.decodeIfPresent(String.self, forKey: .thumbnail)
+        isUnpacked = try container.decode(Bool.self, forKey: .isUnpacked)
+        contentRating = try container.decodeIfPresent(ContentRating.self, forKey: .contentRating) ?? .everyone
+        tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
+        collections = try container.decodeIfPresent([String].self, forKey: .collections) ?? []
+        assets = try container.decodeIfPresent([RemoteAsset].self, forKey: .assets) ?? []
+    }
 
     var typeLabel: String {
         type.label
@@ -47,6 +72,61 @@ struct RemoteWallpaperItem: Decodable, Identifiable, Hashable {
 
     func thumbnailURL(relativeTo baseURL: URL?) -> URL? {
         URLResolver.resolve(thumbnail, relativeTo: baseURL)
+    }
+}
+
+enum ContentRating: String, CaseIterable, Decodable, Hashable {
+    case everyone
+    case questionable
+    case mature
+
+    init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer().decode(String.self)
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "mature":
+            self = .mature
+        case "questionable":
+            self = .questionable
+        default:
+            self = .everyone
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .everyone: return "Everyone"
+        case .questionable: return "Questionable"
+        case .mature: return "Mature"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .everyone: return "person.2"
+        case .questionable: return "exclamationmark.triangle"
+        case .mature: return "18.circle"
+        }
+    }
+
+    var filterValue: String {
+        switch self {
+        case .everyone: return "Everyone"
+        case .questionable: return "Questionable"
+        case .mature: return "Mature"
+        }
+    }
+
+    init?(filterValue: String) {
+        switch filterValue {
+        case "Everyone":
+            self = .everyone
+        case "Questionable":
+            self = .questionable
+        case "Mature":
+            self = .mature
+        default:
+            return nil
+        }
     }
 }
 
@@ -72,6 +152,7 @@ struct RemoteAsset: Decodable, Identifiable, Hashable {
 }
 
 enum WallpaperKind: String, Decodable, Hashable {
+    case pkg
     case image
     case video
     case scene
@@ -86,6 +167,7 @@ enum WallpaperKind: String, Decodable, Hashable {
 
     var label: String {
         switch self {
+        case .pkg: return "Package"
         case .image: return "Image"
         case .video: return "Video"
         case .scene: return "Scene"
@@ -97,6 +179,7 @@ enum WallpaperKind: String, Decodable, Hashable {
 
     var icon: String {
         switch self {
+        case .pkg: return "shippingbox"
         case .image: return "photo"
         case .video: return "film"
         case .scene: return "cube"

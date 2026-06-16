@@ -107,6 +107,7 @@ def scan_wallpaper_directory(config: ServerConfig, directory: Path) -> Optional[
         preview_path=preview,
         thumbnail_relative_path=thumbnail_relative,
         is_unpacked=bool(extracted_assets) or (inferred_type == "video" and bool(direct_assets)),
+        content_rating=project.content_rating,
         tags=project.tags,
         collections=project.collections,
         assets=assets,
