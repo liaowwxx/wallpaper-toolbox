@@ -6,8 +6,10 @@ import UIKit
 
 struct LibraryView: View {
     @Environment(RemoteLibraryViewModel.self) private var library
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var baseTileSize: CGFloat = 112
     @GestureState private var magnification: CGFloat = 1.0
+    @State private var showFilters = false
 
     private var tileSize: CGFloat {
         clampedTileSize(baseTileSize * magnification)
@@ -20,18 +22,36 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        @Bindable var library = library
+        if usesSidebarLayout {
+            regularLayout
+        } else {
+            compactLayout
+        }
+    }
 
+    private var usesSidebarLayout: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+        #else
+        horizontalSizeClass == .regular
+        #endif
+    }
+
+    @ViewBuilder
+    private var regularLayout: some View {
+        @Bindable var library = library
         NavigationSplitView {
             LibrarySidebar()
                 .navigationTitle("Library")
                 .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 360)
         } detail: {
-            libraryGrid
-                .navigationTitle("Wallpapers")
-                .navigationDestination(for: RemoteWallpaperItem.self) { item in
-                    WallpaperDetailView(item: item)
-                }
+            NavigationStack {
+                libraryGrid
+                    .navigationTitle("Wallpapers")
+                    .navigationDestination(for: RemoteWallpaperItem.self) { item in
+                        WallpaperDetailView(item: item)
+                    }
+            }
         }
         .searchable(text: $library.query, prompt: "Search wallpapers")
         .toolbar {
@@ -46,6 +66,50 @@ struct LibraryView: View {
             }
         }
         .statusOverlay()
+    }
+
+    @ViewBuilder
+    private var compactLayout: some View {
+        @Bindable var library = library
+        NavigationStack {
+            libraryGrid
+                .navigationTitle("Wallpapers")
+                .navigationDestination(for: RemoteWallpaperItem.self) { item in
+                    WallpaperDetailView(item: item)
+                }
+                .searchable(text: $library.query, prompt: "Search wallpapers")
+                .toolbar {
+                    ToolbarItemGroup(placement: .primaryAction) {
+                        Button {
+                            Task { await library.connect() }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        .disabled(library.isLoading)
+                        .accessibilityLabel("Reload library")
+
+                        Button {
+                            showFilters = true
+                        } label: {
+                            Image(systemName: "line.3.horizontal.decrease")
+                        }
+                        .accessibilityLabel("Filters & Settings")
+                    }
+                }
+                .statusOverlay()
+        }
+        .sheet(isPresented: $showFilters) {
+            NavigationStack {
+                LibrarySettingsList()
+                    .navigationTitle("Filters & Settings")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showFilters = false }
+                        }
+                    }
+            }
+        }
     }
 
     private var libraryGrid: some View {
@@ -96,13 +160,28 @@ struct LibraryView: View {
 private struct LibrarySidebar: View {
     var body: some View {
         List {
-            SidebarFiltersSection()
-            SidebarConnectionSection()
-            SidebarActionsSection()
-            SidebarCapabilitiesSection()
-            SidebarLatestJobSection()
+            LibrarySidebarContent()
         }
         .listStyle(.sidebar)
+    }
+}
+
+private struct LibrarySettingsList: View {
+    var body: some View {
+        List {
+            LibrarySidebarContent()
+        }
+        .listStyle(.insetGrouped)
+    }
+}
+
+private struct LibrarySidebarContent: View {
+    var body: some View {
+        SidebarFiltersSection()
+        SidebarConnectionSection()
+        SidebarActionsSection()
+        SidebarCapabilitiesSection()
+        SidebarLatestJobSection()
     }
 }
 
