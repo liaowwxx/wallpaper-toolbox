@@ -18,14 +18,27 @@ struct SettingsView: View {
             }
         }
         .scenePadding()
-        .frame(width: 640, height: 420)
+        .frame(width: 680, height: 540)
     }
 }
 
 // MARK: - General Tab
 
 private struct GeneralTab: View {
+    @Environment(AppViewModel.self) private var viewModel
     @Environment(SettingsStore.self) private var settings
+
+    private var libraryModeBinding: Binding<LibraryMode> {
+        Binding(
+            get: { settings.libraryMode },
+            set: { mode in
+                settings.libraryMode = mode
+                if mode == .local {
+                    viewModel.switchToLocalLibrary()
+                }
+            }
+        )
+    }
 
     private var scanModeBinding: Binding<ScanMode> {
         Binding(
@@ -36,6 +49,62 @@ private struct GeneralTab: View {
 
     var body: some View {
         Form {
+            Section {
+                Picker("Library Mode", selection: libraryModeBinding) {
+                    ForEach(LibraryMode.allCases, id: \.self) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                if settings.libraryMode == .remote {
+                    TextField("Server URL", text: Binding(
+                        get: { settings.remoteServerURL },
+                        set: { settings.remoteServerURL = $0 }
+                    ))
+                    TextField("Username", text: Binding(
+                        get: { settings.remoteUsername },
+                        set: { settings.remoteUsername = $0 }
+                    ))
+                    SecureField("Password", text: Binding(
+                        get: { settings.remotePassword },
+                        set: { settings.remotePassword = $0 }
+                    ))
+                    HStack {
+                        Text(settings.remoteDownloadDirectory.path)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer()
+                        Button("Change...") {
+                            viewModel.selectRemoteDownloadDirectory()
+                        }
+                    }
+                    HStack {
+                        if viewModel.isRemoteConnecting {
+                            ProgressView().scaleEffect(0.65)
+                        }
+                        Button {
+                            Task { await viewModel.connectRemoteLibrary() }
+                        } label: {
+                            Label("Connect", systemImage: "network")
+                        }
+                        .disabled(viewModel.isRemoteConnecting)
+                        if !viewModel.remoteConnectionStatus.isEmpty {
+                            Text(viewModel.remoteConnectionStatus)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+            } header: {
+                Text("Library")
+            } footer: {
+                Text("Remote mode connects to the Windows demo server and downloads original wallpaper folders into the selected local directory before using the normal local wallpaper pipeline.")
+            }
+
             Section {
                 Picker("Default Scan Mode", selection: scanModeBinding) {
                     ForEach(ScanMode.allCases, id: \.self) { mode in

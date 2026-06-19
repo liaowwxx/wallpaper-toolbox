@@ -1,5 +1,17 @@
 import Foundation
 
+enum LibraryMode: String, CaseIterable {
+    case local
+    case remote
+
+    var label: String {
+        switch self {
+        case .local: return "Local"
+        case .remote: return "Remote"
+        }
+    }
+}
+
 /// Reactive, persistent settings store.
 /// All settings read/write directly to UserDefaults.
 /// Injected via `.environment()` so both the main window and the Settings scene
@@ -10,6 +22,14 @@ final class SettingsStore {
     private let defaults = UserDefaults.standard
 
     // MARK: - General
+
+    var libraryMode: LibraryMode {
+        get {
+            let raw = defaults.string(forKey: UserDefaultsKey.libraryMode) ?? LibraryMode.local.rawValue
+            return LibraryMode(rawValue: raw) ?? .local
+        }
+        set { defaults.set(newValue.rawValue, forKey: UserDefaultsKey.libraryMode) }
+    }
 
     var scanMode: ScanMode {
         get {
@@ -27,6 +47,32 @@ final class SettingsStore {
     var autoReplaceStaticWithFirstFrame: Bool {
         get { defaults.bool(forKey: UserDefaultsKey.autoReplaceStatic) }
         set { defaults.set(newValue, forKey: UserDefaultsKey.autoReplaceStatic) }
+    }
+
+    var remoteServerURL: String {
+        get { defaults.string(forKey: UserDefaultsKey.remoteServerURL) ?? "http://localhost:8090" }
+        set { defaults.set(newValue, forKey: UserDefaultsKey.remoteServerURL) }
+    }
+
+    var remoteUsername: String {
+        get { defaults.string(forKey: UserDefaultsKey.remoteUsername) ?? "" }
+        set { defaults.set(newValue, forKey: UserDefaultsKey.remoteUsername) }
+    }
+
+    var remotePassword: String {
+        get { defaults.string(forKey: UserDefaultsKey.remotePassword) ?? "" }
+        set { defaults.set(newValue, forKey: UserDefaultsKey.remotePassword) }
+    }
+
+    var remoteDownloadDirectory: URL {
+        get {
+            if let path = defaults.string(forKey: UserDefaultsKey.remoteDownloadDirectoryPath), !path.isEmpty {
+                return URL(fileURLWithPath: path)
+            }
+            return FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first!
+                .appendingPathComponent("Wallpaper Toolbox Remote", isDirectory: true)
+        }
+        set { defaults.set(newValue.path, forKey: UserDefaultsKey.remoteDownloadDirectoryPath) }
     }
 
     // MARK: - Wallpaper

@@ -48,6 +48,9 @@ struct WallpaperCard: View, Equatable {
             && lhs.item.collections == rhs.item.collections
             && lhs.item.tags == rhs.item.tags
             && lhs.item.isExtracted == rhs.item.isExtracted
+            && lhs.item.isRemote == rhs.item.isRemote
+            && lhs.item.isDownloaded == rhs.item.isDownloaded
+            && lhs.item.remoteThumbnailURL == rhs.item.remoteThumbnailURL
             && lhs.isSelected == rhs.isSelected
     }
 
@@ -113,13 +116,34 @@ private struct WallpaperCardInternal: View {
                 ThumbnailView(url: thumbPath, version: item.thumbnailVersion, fallbackIcon: item.typeIcon)
             } else if let previewPath = item.previewPath {
                 ThumbnailView(url: previewPath, version: item.thumbnailVersion, fallbackIcon: item.typeIcon)
-            } else {
-                ZStack {
-                    Rectangle().fill(.quaternary)
-                    Image(systemName: item.typeIcon)
-                        .font(.largeTitle).foregroundStyle(.secondary)
+            } else if item.isRemote, let thumbnailURL = item.remoteThumbnailURL {
+                AsyncImage(url: thumbnailURL) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().scaledToFill()
+                    case .failure:
+                        remotePlaceholder
+                    case .empty:
+                        ZStack {
+                            remotePlaceholder
+                            ProgressView().scaleEffect(0.7)
+                        }
+                    @unknown default:
+                        remotePlaceholder
+                    }
                 }
+            } else {
+                remotePlaceholder
             }
+        }
+    }
+
+    private var remotePlaceholder: some View {
+        ZStack {
+            Rectangle().fill(.quaternary)
+            Image(systemName: item.typeIcon)
+                .font(.largeTitle)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -151,19 +175,26 @@ private struct WallpaperCardInternal: View {
 
     @ViewBuilder
     private var statusBadge: some View {
-        HStack(spacing: 4) {
-            if item.isExtracted {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.caption).foregroundStyle(.green)
+        if item.isRemote || item.isExtracted || item.pkgPath != nil {
+            HStack(spacing: 4) {
+                if item.isRemote {
+                    Image(systemName: item.isDownloaded ? "checkmark.icloud.fill" : "icloud.and.arrow.down")
+                        .font(.caption)
+                        .foregroundStyle(item.isDownloaded ? .green : .blue)
+                }
+                if item.isExtracted {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.caption).foregroundStyle(.green)
+                }
+                if item.pkgPath != nil {
+                    Image(systemName: "shippingbox.fill")
+                        .font(.caption).foregroundStyle(.orange)
+                }
             }
-            if item.pkgPath != nil {
-                Image(systemName: "shippingbox.fill")
-                    .font(.caption).foregroundStyle(.orange)
-            }
+            .padding(4)
+            .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 5))
+            .padding(6)
         }
-        .padding(4)
-        .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 5))
-        .padding(6)
     }
 
     @ViewBuilder
@@ -196,70 +227,76 @@ private struct WallpaperCardInternal: View {
         let isScene = item.type.lowercased() == "scene"
         let needsExtract = item.pkgPath != nil
 
-        Button(needsExtract ? "Set as Wallpaper..." : "Set as Wallpaper") {
-            viewModel.setAsWallpaper(item)
-        }
-        Button(needsExtract ? "Set on All Screens..." : "Set on All Screens") {
-            viewModel.setAsWallpaperForAllScreens(item)
-        }
-        if isScene {
-            Divider()
-            Button("Scene Properties...") {
-                viewModel.openSceneProperties(item)
+        if item.isRemote && !item.isDownloaded {
+            Button("Download") {
+                viewModel.downloadRemoteWallpaper(item)
             }
-        }
-        if needsExtract {
-            Divider()
-            Button("Extract to Disk...") {
-                viewModel.selectedIDs = [item.id]
-                viewModel.showExtractSheet = true
+        } else {
+            Button(needsExtract ? "Set as Wallpaper..." : "Set as Wallpaper") {
+                viewModel.setAsWallpaper(item)
             }
-        }
-
-        Divider()
-
-        Menu("Change Rating") {
-            ForEach(["Everyone", "Questionable", "Mature"], id: \.self) { rating in
-                Button(rating) {
-                    viewModel.setContentRating(item, rating: rating)
-                }
-                if item.contentRating == rating {
-                    Image(systemName: "checkmark")
-                }
+            Button(needsExtract ? "Set on All Screens..." : "Set on All Screens") {
+                viewModel.setAsWallpaperForAllScreens(item)
             }
-        }
-
-        Menu("Add to Collection") {
-            ForEach(viewModel.allCollections, id: \.self) { collection in
-                Button(collection) {
-                    viewModel.addToCollection(item, collection: collection)
-                }
-            }
-            if !viewModel.allCollections.isEmpty {
+            if isScene {
                 Divider()
+                Button("Scene Properties...") {
+                    viewModel.openSceneProperties(item)
+                }
             }
-            Button("New Collection...") {
-                viewModel.selectedIDs = [item.id]
-                viewModel.showNewCollectionSheet = true
+            if needsExtract {
+                Divider()
+                Button("Extract to Disk...") {
+                    viewModel.selectedIDs = [item.id]
+                    viewModel.showExtractSheet = true
+                }
             }
-        }
 
-        if !item.collections.isEmpty {
-            Menu("Remove from Collection") {
-                ForEach(item.collections, id: \.self) { collection in
-                    Button(collection) {
-                        viewModel.removeFromCollection(item, collection: collection)
+            Divider()
+
+            Menu("Change Rating") {
+                ForEach(["Everyone", "Questionable", "Mature"], id: \.self) { rating in
+                    Button(rating) {
+                        viewModel.setContentRating(item, rating: rating)
+                    }
+                    if item.contentRating == rating {
+                        Image(systemName: "checkmark")
                     }
                 }
             }
-        }
 
-        Divider()
-        Button("Show in Finder") { viewModel.openInFinder(item) }
+            Menu("Add to Collection") {
+                ForEach(viewModel.allCollections, id: \.self) { collection in
+                    Button(collection) {
+                        viewModel.addToCollection(item, collection: collection)
+                    }
+                }
+                if !viewModel.allCollections.isEmpty {
+                    Divider()
+                }
+                Button("New Collection...") {
+                    viewModel.selectedIDs = [item.id]
+                    viewModel.showNewCollectionSheet = true
+                }
+            }
 
-        Divider()
-        Button("Delete") {
-            isConfirmingDelete = true
+            if !item.collections.isEmpty {
+                Menu("Remove from Collection") {
+                    ForEach(item.collections, id: \.self) { collection in
+                        Button(collection) {
+                            viewModel.removeFromCollection(item, collection: collection)
+                        }
+                    }
+                }
+            }
+
+            Divider()
+            Button("Show in Finder") { viewModel.openInFinder(item) }
+
+            Divider()
+            Button("Delete") {
+                isConfirmingDelete = true
+            }
         }
     }
 }

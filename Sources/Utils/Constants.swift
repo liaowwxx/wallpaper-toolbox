@@ -41,6 +41,11 @@ enum UserDefaultsKey {
     static let scanMode = "scanMode"
     static let restoreLastWallpaper = "restoreLastWallpaper"
     static let autoReplaceStatic = "autoReplaceStatic"
+    static let libraryMode = "libraryMode"
+    static let remoteServerURL = "remoteServerURL"
+    static let remoteUsername = "remoteUsername"
+    static let remotePassword = "remotePassword"
+    static let remoteDownloadDirectoryPath = "remoteDownloadDirectoryPath"
 
     // Wallpaper
     static let wallpaperMuted = "wallpaperMuted"
@@ -67,6 +72,7 @@ enum UserDefaultsKey {
     // Bookmarks
     static let savedDirectoryBookmark = "savedDirectoryBookmark"
     static let savedOutputBookmark = "savedOutputBookmark"
+    static let savedRemoteDownloadBookmark = "savedRemoteDownloadBookmark"
 
     // Persistence
     static let appSettings = "com.wallpaper.gallery.settings"

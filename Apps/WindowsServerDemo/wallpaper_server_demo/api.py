@@ -6,10 +6,13 @@ from hmac import compare_digest
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse, urlunparse
+import tempfile
+import zipfile
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
+from starlette.background import BackgroundTask
 
 from .config import ServerConfig, load_config
 from .library import build_and_write_manifest, load_manifest, scan_library, unpack_wallpaper
@@ -45,7 +48,7 @@ def status() -> dict[str, Any]:
         "status": "ok",
         "libraryRoot": str(config.root_path) if config.library_root else "",
         "manifestExists": config.manifest_path.exists() if config.library_root else False,
-        "features": ["rangeStreaming", "staticManifest", "unpackJobs", "thumbnails"],
+        "features": ["rangeStreaming", "staticManifest", "unpackJobs", "thumbnails", "sourceFolderDownloads"],
     }
 
 
@@ -82,6 +85,31 @@ def unpack(item_id: str) -> JSONResponse:
         raise HTTPException(status_code=404, detail=str(error)) from error
     jobs[job["jobId"]] = job
     return JSONResponse(job)
+
+
+@app.get("/api/wallpapers/{item_id}/download")
+def download_source_folder(item_id: str) -> FileResponse:
+    config = require_config()
+    record = next((item for item in scan_library(config) if item.id == item_id), None)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Wallpaper not found")
+    if not record.source_dir.exists() or not record.source_dir.is_dir():
+        raise HTTPException(status_code=404, detail="Wallpaper source folder not found")
+
+    temp_file = tempfile.NamedTemporaryFile(prefix=f"{record.id}-", suffix=".zip", delete=False)
+    archive_path = temp_file.name
+    temp_file.close()
+    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        add_directory_to_archive(record.source_dir, archive, record.source_dir.name)
+    Path(archive_path).chmod(0o600)
+
+    filename = f"{record.source_dir.name}.zip"
+    return FileResponse(
+        archive_path,
+        filename=filename,
+        media_type="application/zip",
+        background=BackgroundTask(lambda: Path(archive_path).unlink(missing_ok=True)),
+    )
 
 
 @app.get("/api/jobs/{job_id}")
@@ -171,6 +199,16 @@ def safe_library_path(root: Path, relative_path: str) -> Path:
     except ValueError as error:
         raise HTTPException(status_code=403, detail="Path escapes library root") from error
     return target
+
+
+def add_directory_to_archive(directory: Path, archive: zipfile.ZipFile, root_name: str) -> None:
+    for path in directory.rglob("*"):
+        if path.is_dir():
+            continue
+        relative = path.relative_to(directory)
+        if any(part in {"__pycache__", ".git"} for part in relative.parts):
+            continue
+        archive.write(path, Path(root_name) / relative)
 
 
 def allowed_file_paths(config: ServerConfig) -> set[str]:

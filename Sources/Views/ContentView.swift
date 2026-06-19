@@ -52,21 +52,57 @@ struct ContentView: View {
     // MARK: - Gallery
 
     private var galleryArea: some View {
-        VStack(spacing: 0) {
-            if !viewModel.selectedIDs.isEmpty {
-                BatchActionBar()
-                    .transition(.move(edge: .top).combined(with: .opacity))
+        ZStack(alignment: .bottomTrailing) {
+            VStack(spacing: 0) {
+                if !viewModel.selectedIDs.isEmpty {
+                    BatchActionBar()
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
+                if viewModel.wallpapers.isEmpty && !viewModel.isScanning {
+                    EmptyGalleryView()
+                        .transition(.opacity)
+                } else {
+                    GalleryView()
+                }
             }
 
-            if viewModel.wallpapers.isEmpty && !viewModel.isScanning {
-                EmptyGalleryView()
-                    .transition(.opacity)
-            } else {
-                GalleryView()
+            if let progress = viewModel.remoteDownloadProgress {
+                RemoteDownloadProgressPanel(progress: progress)
+                    .padding(18)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .frame(minWidth: 500)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: viewModel.selectedIDs.isEmpty)
+    }
+}
+
+private struct RemoteDownloadProgressPanel: View {
+    let progress: RemoteDownloadProgress
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "icloud.and.arrow.down")
+                    .foregroundStyle(.blue)
+                Text(progress.title)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+                Spacer(minLength: 10)
+                Text(progress.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            ProgressView(value: progress.progress)
+                .progressViewStyle(.linear)
+        }
+        .padding(12)
+        .frame(width: 280)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .shadow(radius: 12, y: 4)
     }
 }
 

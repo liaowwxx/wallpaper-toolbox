@@ -23,6 +23,12 @@ struct WallpaperItem: Identifiable, Hashable {
     var collections: [String]
     var tags: [String]
     var isExtracted: Bool
+    var remoteID: String?
+    var remoteRelativeDir: String?
+    var remoteArchiveURL: URL?
+    var remoteThumbnailURL: URL?
+    var isRemote: Bool
+    var isDownloaded: Bool
 
     init(directory: URL, project: ProjectJSON?, preview: URL?, pkg: URL?) {
         self.id = directory.lastPathComponent
@@ -36,6 +42,12 @@ struct WallpaperItem: Identifiable, Hashable {
         self.collections = project?.repkgcollection ?? []
         self.tags = project?.preview_tagger ?? []
         self.isExtracted = WallpaperItem.checkExtracted(directory)
+        self.remoteID = nil
+        self.remoteRelativeDir = nil
+        self.remoteArchiveURL = nil
+        self.remoteThumbnailURL = nil
+        self.isRemote = false
+        self.isDownloaded = true
     }
 
     private static func checkExtracted(_ dir: URL) -> Bool {

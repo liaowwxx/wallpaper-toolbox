@@ -120,7 +120,7 @@ def build_manifest(config: ServerConfig, records: list[WallpaperRecord]) -> dict
         "serverVersion": f"windows-demo-{__version__}",
         "generatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "apiBaseURL": config.normalized_public_api_base_url or None,
-        "features": ["rangeStreaming", "staticManifest", "unpackJobs", "thumbnails"],
+        "features": ["rangeStreaming", "staticManifest", "unpackJobs", "thumbnails", "sourceFolderDownloads"],
         "items": [record_to_manifest(config, record) for record in records],
     }
 
