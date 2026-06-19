@@ -1,8 +1,8 @@
 # WallPaper Gallery
 
-WallPaper Gallery is a SwiftUI wallpaper toolbox for Wallpaper Engine resources. The main app is a macOS-native browser and manager for local libraries, with RePKG extraction and image/video wallpaper setting support.
+WallPaper Gallery is a macOS-native SwiftUI toolbox for local Wallpaper Engine libraries. It scans wallpaper folders, generates previews, extracts `.pkg` assets through RePKG, and can set image, video, and scene wallpapers.
 
-This repository also contains early cross-platform demos:
+The repository also contains early cross-platform demos:
 
 - `Apps/iOSDemo`: an iPhone/iPad client for browsing a remote Windows wallpaper library.
 - `Apps/WindowsServerDemo`: a Streamlit-controlled Windows server demo that scans Wallpaper Engine folders, generates thumbnails, serves a manifest, and runs RePKG unpack jobs on demand.
@@ -10,24 +10,114 @@ This repository also contains early cross-platform demos:
 
 ## macOS App
 
+Run from the repository root:
+
 ```bash
 swift run
 ```
 
-Build release binary:
+Build a release binary:
 
 ```bash
 swift build -c release
 ```
 
-Build app bundle or DMG:
+Build the `.app` bundle or DMG:
 
 ```bash
-make app
-make dmg
+./scripts/build.sh
+./scripts/build.sh dmg
 ```
 
-The macOS app expects the bundled native video wallpaper player at `resources/bin/WallpaperPlayer` and the bundled RePKG runtime under `resources/osx-arm64`. Set `REPKG_PATH` to override the RePKG executable at runtime.
+The app bundle is written to:
+
+```text
+.build/WallPaper Gallery.app
+```
+
+## Wallpaper Support
+
+### Image and Video
+
+Image wallpapers are applied through `NSWorkspace`.
+
+Video wallpapers use the bundled native helper:
+
+```text
+resources/bin/WallpaperPlayer
+```
+
+The build script copies this helper into the app bundle as `Contents/Resources/WallpaperPlayer`.
+
+### Scene Wallpapers
+
+Scene wallpapers support two paths from the normal `Set as Wallpaper...` flow:
+
+1. The app first attempts the existing RePKG extraction flow for `scene.pkg`.
+2. The asset picker opens.
+3. At the top of the picker, `Render Scene Directly` starts realtime scene rendering through `wallpaper-wgpu`.
+4. Below that, extracted image/video files are still listed and can be selected like normal wallpapers.
+
+This keeps the old extracted-file workflow available while adding realtime scene rendering.
+
+Scene rendering uses:
+
+```text
+resources/bin/wallpaper-wgpu
+resources/assets/
+resources/dxc
+resources/lib/libdxcompiler.dylib
+```
+
+The renderer is launched with wallpaper/background flags, per-screen geometry, FPS limiting, optional MetalFX upscaling, bundled assets, and saved user property overrides.
+
+### Scene Properties
+
+Scene wallpapers can define user-adjustable options in `project.json -> general.properties`, similar to Wallpaper Engine. Right-click a scene card and choose `Scene Properties...` to edit supported controls:
+
+- sliders
+- toggles
+- colors
+- combo boxes
+- text/file values
+- conditional visibility
+
+Overrides are saved under Application Support:
+
+```text
+~/Library/Application Support/com.wallpaper.gallery/SceneProperties/
+```
+
+When a rendered scene is already active, changing scene properties restarts the scene renderer with updated `--user-properties`.
+
+### Scene Performance Settings
+
+Open Settings -> Wallpaper -> Scene Rendering to configure:
+
+- MetalFX upscaling for scene wallpapers
+- render scale, default `70%`
+- scene FPS cap, default `60 FPS`
+
+`Save & Reapply` persists the settings and restarts the current scene wallpaper using the new values.
+
+## Bundled Runtime Assets
+
+The macOS app expects these resources to exist before packaging:
+
+```text
+resources/osx-arm64/RePKG
+resources/osx-arm64/*.dll
+resources/osx-arm64/*.json
+resources/osx-arm64/*.dylib
+resources/osx-arm64/*.pdb
+resources/bin/WallpaperPlayer
+resources/bin/wallpaper-wgpu
+resources/assets/
+resources/dxc
+resources/lib/libdxcompiler.dylib
+```
+
+`scripts/build.sh` copies these into the app bundle. `REPKG_PATH`, `WALLPAPER_WGPU_PATH`, and `WALLPAPER_WGPU_ASSETS_PATH` can override the bundled defaults during development.
 
 ## Remote Windows Demo
 
