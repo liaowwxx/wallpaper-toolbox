@@ -35,6 +35,8 @@ private struct GeneralTab: View {
                 settings.libraryMode = mode
                 if mode == .local {
                     viewModel.switchToLocalLibrary()
+                } else {
+                    viewModel.switchToRemoteLibrary()
                 }
             }
         )

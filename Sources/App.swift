@@ -30,9 +30,7 @@ struct WallPaperGalleryApp: App {
                     if !viewModel.appDidLaunch {
                         viewModel.appDidLaunch = true
                         viewModel.restoreWallpaperIfNeeded()
-                    }
-                    if viewModel.selectedDirectory != nil {
-                        Task { await viewModel.scan() }
+                        Task { await viewModel.loadInitialLibrary() }
                     }
                 }
         }

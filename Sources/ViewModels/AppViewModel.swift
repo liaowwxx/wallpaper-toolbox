@@ -309,6 +309,31 @@ final class AppViewModel {
         }
     }
 
+    func switchToRemoteLibrary() {
+        libraryMode = .remote
+        if selectedDirectory != settings?.remoteDownloadDirectory {
+            localSelectedDirectory = selectedDirectory
+        }
+        remoteManifest = nil
+        remoteBaseURL = nil
+        remoteDownloadProgress = nil
+        selectedIDs.removeAll()
+        selectedDirectory = settings?.remoteDownloadDirectory
+        wallpapers = []
+        _wallpaperGeneration += 1
+        remoteConnectionStatus = "Remote mode selected"
+        statusText = "Remote mode selected. Connect to load the Windows library."
+    }
+
+    func loadInitialLibrary() async {
+        if isRemoteMode {
+            switchToRemoteLibrary()
+            await connectRemoteLibrary()
+        } else if selectedDirectory != nil {
+            await scan()
+        }
+    }
+
     func connectRemoteLibrary() async {
         guard let settings else { return }
         let normalizedURLText = normalizeRemoteServerURL(settings.remoteServerURL)
@@ -323,12 +348,14 @@ final class AppViewModel {
         isRemoteConnecting = true
         statusText = "Connecting to remote library..."
         remoteConnectionStatus = "Connecting..."
+        wallpapers = []
+        selectedIDs.removeAll()
+        _wallpaperGeneration += 1
         if selectedDirectory != settings.remoteDownloadDirectory {
             localSelectedDirectory = selectedDirectory
         }
         settings.remoteServerURL = normalizedURLText
         settings.libraryMode = .remote
-        selectedIDs.removeAll()
         defer { isRemoteConnecting = false }
 
         do {
@@ -356,8 +383,15 @@ final class AppViewModel {
     }
 
     func scan(resetFilters: Bool = true) async {
-        if isRemoteMode, remoteManifest != nil {
-            await refreshRemoteWallpapers(resetFilters: resetFilters)
+        if isRemoteMode {
+            if remoteManifest != nil {
+                await refreshRemoteWallpapers(resetFilters: resetFilters)
+            } else {
+                wallpapers = []
+                selectedIDs.removeAll()
+                _wallpaperGeneration += 1
+                statusText = "Remote mode selected. Connect to load the Windows library."
+            }
             return
         }
         guard let dir = selectedDirectory else { return }
@@ -500,6 +534,11 @@ final class AppViewModel {
             registry[record.id] = downloadedFolderName
             saveRemoteDownloadRegistry(registry, root: settings.remoteDownloadDirectory)
             try? FileManager.default.removeItem(at: archive)
+            markRemoteWallpaperDownloaded(
+                record: record,
+                folderName: downloadedFolderName,
+                root: settings.remoteDownloadDirectory
+            )
             remoteDownloadProgress = nil
             await refreshRemoteWallpapers()
             statusText = "Downloaded: \(item.title)"
@@ -521,6 +560,50 @@ final class AppViewModel {
             $0.title == record.title && $0.type.lowercased() == record.type.lowercased()
         }
         return matchingItems.count == 1 ? matchingItems[0] : nil
+    }
+
+    private func markRemoteWallpaperDownloaded(record: RemoteWallpaperRecord, folderName: String, root: URL) {
+        guard let index = wallpapers.firstIndex(where: { $0.remoteID == record.id }) else { return }
+        let folderURL = root.appendingPathComponent(folderName, isDirectory: true)
+        var item = WallpaperItem(
+            directory: folderURL,
+            project: metadataService.readProjectJSON(in: folderURL),
+            preview: findPreview(in: folderURL),
+            pkg: findPKG(in: folderURL)
+        )
+        item.id = "remote-\(record.id)"
+        item.title = record.title
+        item.type = record.type
+        item.contentRating = record.contentRating
+        item.collections = record.collections
+        item.tags = record.tags
+        item.metadataKey = record.id
+        item.remoteID = record.id
+        item.remoteRelativeDir = record.relativeDir
+        item.remoteArchiveURL = record.sourceArchiveURL(relativeTo: remoteBaseURL)
+        item.remoteThumbnailURL = record.thumbnailURL(relativeTo: remoteBaseURL)
+        item.isRemote = true
+        item.isDownloaded = true
+        wallpapers[index] = item
+        selectedIDs.remove(item.id)
+        _wallpaperGeneration += 1
+    }
+
+    private func findPreview(in directory: URL) -> URL? {
+        for name in ["preview.jpg", "preview.png", "preview.gif", "preview.webp"] {
+            let url = directory.appendingPathComponent(name)
+            if FileManager.default.fileExists(atPath: url.path) { return url }
+        }
+        return nil
+    }
+
+    private func findPKG(in directory: URL) -> URL? {
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else { return nil }
+        return contents.first { $0.pathExtension.lowercased() == "pkg" }
     }
 
     private func remoteFolderName(for record: RemoteWallpaperRecord) -> String {
