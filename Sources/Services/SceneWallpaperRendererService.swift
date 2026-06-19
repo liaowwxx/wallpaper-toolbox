@@ -11,8 +11,11 @@ final class SceneWallpaperRendererService {
     }
 
     private var processes: [String: RendererProcess] = [:]
+    private var activeProjectURL: URL?
+    private var activeAllScreens = false
+    private var activeMuted = true
 
-    func setSceneWallpaper(projectURL: URL, allScreens: Bool, isMuted: Bool) throws {
+    func setSceneWallpaper(projectURL: URL, allScreens: Bool, isMuted: Bool, userProperties: String? = nil) throws {
         guard let executableURL = Self.findRendererExecutable() else {
             throw SceneWallpaperRendererError.rendererNotFound
         }
@@ -33,7 +36,8 @@ final class SceneWallpaperRendererService {
                     executableURL: executableURL,
                     sceneURL: sceneURL,
                     screen: screen,
-                    isMuted: isMuted
+                    isMuted: isMuted,
+                    userProperties: userProperties
                 )
                 let screenID = Self.screenIdentifier(for: screen)
                 processes[screenID] = RendererProcess(
@@ -44,14 +48,34 @@ final class SceneWallpaperRendererService {
                 launchedPIDs.append(process.processIdentifier)
             }
             Self.persistRendererPIDs(launchedPIDs)
+            activeProjectURL = projectURL
+            activeAllScreens = allScreens
+            activeMuted = isMuted
         } catch {
             stop()
             throw error
         }
     }
 
+    func refreshSceneWallpaperProperties(userProperties: String?) throws {
+        guard let activeProjectURL else {
+            throw SceneWallpaperRendererError.noActiveScene
+        }
+        try setSceneWallpaper(
+            projectURL: activeProjectURL,
+            allScreens: activeAllScreens,
+            isMuted: activeMuted,
+            userProperties: userProperties
+        )
+    }
+
+    func isRendering(projectURL: URL) -> Bool {
+        activeProjectURL?.standardizedFileURL == projectURL.standardizedFileURL
+    }
+
     func stop() {
         guard !processes.isEmpty else {
+            activeProjectURL = nil
             Self.stopPersistedRendererProcesses()
             return
         }
@@ -66,6 +90,7 @@ final class SceneWallpaperRendererService {
             }
         }
         processes.removeAll()
+        activeProjectURL = nil
         Self.clearPersistedRendererPIDs()
     }
 
@@ -94,7 +119,8 @@ final class SceneWallpaperRendererService {
         executableURL: URL,
         sceneURL: URL,
         screen: NSScreen,
-        isMuted: Bool
+        isMuted: Bool,
+        userProperties: String?
     ) throws -> Process {
         let frame = screen.frame
         let scale = screen.backingScaleFactor
@@ -118,6 +144,9 @@ final class SceneWallpaperRendererService {
         }
         if isMuted {
             args.append("--muted")
+        }
+        if let userProperties, !userProperties.isEmpty {
+            args += ["--user-properties", userProperties]
         }
 
         let process = Process()
@@ -243,6 +272,7 @@ enum SceneWallpaperRendererError: LocalizedError {
     case rendererNotFound
     case sceneNotFound
     case noScreenAvailable
+    case noActiveScene
 
     var errorDescription: String? {
         switch self {
@@ -252,6 +282,8 @@ enum SceneWallpaperRendererError: LocalizedError {
             return "Scene wallpaper project or package was not found."
         case .noScreenAvailable:
             return "No display is available to render the scene wallpaper on."
+        case .noActiveScene:
+            return "No scene wallpaper is currently rendering."
         }
     }
 }

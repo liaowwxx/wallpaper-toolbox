@@ -34,6 +34,8 @@ final class AppViewModel {
     var wallpaperStatus = ""
     var wallpaperForAllScreens = false
     var wallpaperTargetItem: WallpaperItem?
+    var showSceneProperties = false
+    var scenePropertiesTargetItem: WallpaperItem?
 
     // Settings are now in SettingsStore, injected via environment.
     // These mirrors exist for backward-compatible access within the ViewModel.
@@ -628,10 +630,12 @@ final class AppViewModel {
             if item.type.lowercased() == "scene" {
                 do {
                     WallpaperService.killVideoWallpaper()
+                    let userProperties = SceneWallpaperPropertiesService.propertiesOverrideJSON(for: item.path)
                     try sceneRendererService.setSceneWallpaper(
                         projectURL: item.path,
                         allScreens: allScreens,
-                        isMuted: wallpaperMuted
+                        isMuted: wallpaperMuted,
+                        userProperties: userProperties
                     )
                     saveLastSceneWallpaper(item.path, isMuted: wallpaperMuted, allScreens: allScreens)
                     wallpaperStatus = ""
@@ -749,6 +753,28 @@ final class AppViewModel {
         startWallpaperPipeline(item, allScreens: true)
     }
 
+    func openSceneProperties(_ item: WallpaperItem) {
+        guard item.type.lowercased() == "scene" else { return }
+        scenePropertiesTargetItem = item
+        showSceneProperties = true
+    }
+
+    func refreshSceneWallpaperProperties(for item: WallpaperItem) {
+        guard item.type.lowercased() == "scene" else { return }
+        guard sceneRendererService.isRendering(projectURL: item.path) else {
+            statusText = "Scene properties saved: \(item.title)"
+            return
+        }
+
+        do {
+            let userProperties = SceneWallpaperPropertiesService.propertiesOverrideJSON(for: item.path)
+            try sceneRendererService.refreshSceneWallpaperProperties(userProperties: userProperties)
+            statusText = "Scene properties applied: \(item.title)"
+        } catch {
+            statusText = "Scene properties saved, refresh failed: \(error.localizedDescription)"
+        }
+    }
+
     private func setFlatWallpaper(url: URL, allScreens: Bool) {
         do {
             sceneRendererService.stop()
@@ -861,7 +887,8 @@ final class AppViewModel {
             if UserDefaults.standard.string(forKey: UserDefaultsKey.lastWallpaperKind) == "scene" {
                 WallpaperService.killVideoWallpaper()
                 let allScreens = UserDefaults.standard.bool(forKey: UserDefaultsKey.lastWallpaperAllScreens)
-                try sceneRendererService.setSceneWallpaper(projectURL: url, allScreens: allScreens, isMuted: isMuted)
+                let userProperties = SceneWallpaperPropertiesService.propertiesOverrideJSON(for: url)
+                try sceneRendererService.setSceneWallpaper(projectURL: url, allScreens: allScreens, isMuted: isMuted, userProperties: userProperties)
             } else {
                 sceneRendererService.stop()
                 WallpaperService.killVideoWallpaper()

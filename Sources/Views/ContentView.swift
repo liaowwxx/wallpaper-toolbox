@@ -19,6 +19,11 @@ struct ContentView: View {
                 AssetPickerSheet(item: item, assets: viewModel.wallpaperAssets)
             }
         }
+        .sheet(isPresented: $viewModel.showSceneProperties) {
+            if let item = viewModel.scenePropertiesTargetItem {
+                ScenePropertiesSheet(item: item)
+            }
+        }
         .sheet(isPresented: $viewModel.showNewCollectionSheet) {
             NewCollectionSheet()
         }
