@@ -44,6 +44,9 @@ enum UserDefaultsKey {
 
     // Wallpaper
     static let wallpaperMuted = "wallpaperMuted"
+    static let sceneUpscalingEnabled = "sceneUpscalingEnabled"
+    static let sceneUpscalingPercent = "sceneUpscalingPercent"
+    static let sceneFPSCap = "sceneFPSCap"
 
     // Output
     static let outputDirectoryPath = "outputDirectoryPath"

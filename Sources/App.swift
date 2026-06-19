@@ -69,6 +69,7 @@ struct WallPaperGalleryApp: App {
         #if os(macOS)
         Settings {
             SettingsView()
+                .environment(viewModel)
                 .environment(settingsStore)
         }
         #endif

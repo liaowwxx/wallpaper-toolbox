@@ -136,11 +136,14 @@ final class SceneWallpaperRendererService {
             "--wallpaper",
             "--background",
             "--screen", screenArg,
-            "--fps", "\(Self.refreshRate(for: screen))"
+            "--fps", "\(Self.effectiveFPS(for: screen))"
         ]
 
         if let assetsURL = Self.findAssetsDirectory() {
             args += ["--assets", assetsURL.path]
+        }
+        if Self.isUpscalingEnabled() {
+            args += ["--upscaling", "\(Self.upscalingPercent())"]
         }
         if isMuted {
             args.append("--muted")
@@ -250,6 +253,30 @@ final class SceneWallpaperRendererService {
         let rate = mode.refreshRate
         guard rate > 0 else { return 60 }
         return max(30, min(240, Int(rate.rounded())))
+    }
+
+    private static func effectiveFPS(for screen: NSScreen) -> Int {
+        min(sceneFPSCap(), refreshRate(for: screen))
+    }
+
+    private static func sceneFPSCap() -> Int {
+        let rawValue = UserDefaults.standard.double(forKey: UserDefaultsKey.sceneFPSCap)
+        let value = rawValue > 0 ? rawValue : 60
+        return max(30, min(240, Int(value.rounded())))
+    }
+
+    private static func isUpscalingEnabled() -> Bool {
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: UserDefaultsKey.sceneUpscalingEnabled) == nil {
+            return true
+        }
+        return defaults.bool(forKey: UserDefaultsKey.sceneUpscalingEnabled)
+    }
+
+    private static func upscalingPercent() -> Int {
+        let rawValue = UserDefaults.standard.double(forKey: UserDefaultsKey.sceneUpscalingPercent)
+        let value = rawValue > 0 ? rawValue : 70
+        return max(30, min(100, Int(value.rounded())))
     }
 
     private static func screenIdentifier(for screen: NSScreen) -> String {

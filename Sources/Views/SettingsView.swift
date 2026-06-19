@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// App settings window (Cmd+,).
@@ -17,7 +18,7 @@ struct SettingsView: View {
             }
         }
         .scenePadding()
-        .frame(width: 450, height: 300)
+        .frame(width: 640, height: 420)
     }
 }
 
@@ -63,7 +64,16 @@ private struct GeneralTab: View {
 // MARK: - Wallpaper Tab
 
 private struct WallpaperTab: View {
+    @Environment(AppViewModel.self) private var viewModel
     @Environment(SettingsStore.self) private var settings
+
+    @State private var sceneUpscalingEnabled = true
+    @State private var sceneUpscalingPercent = 70.0
+    @State private var sceneFPSCap = 60.0
+
+    private var maxSceneFPS: Double {
+        Double(NSScreen.screens.map(Self.refreshRate).max() ?? 60)
+    }
 
     var body: some View {
         Form {
@@ -82,8 +92,89 @@ private struct WallpaperTab: View {
             } footer: {
                 Text("When setting a video wallpaper, also capture the first frame as a static fallback for spaces and login screen.")
             }
+
+            Section {
+                Toggle("MetalFX upscaling for scene wallpapers", isOn: $sceneUpscalingEnabled)
+
+                if sceneUpscalingEnabled {
+                    sceneSliderRow(
+                        title: "Render scale",
+                        valueText: "\(Int(sceneUpscalingPercent))%",
+                        value: $sceneUpscalingPercent,
+                        range: 30...100,
+                        step: 5
+                    )
+                }
+
+                sceneSliderRow(
+                    title: "Scene FPS limit",
+                    valueText: "\(Int(sceneFPSCap)) FPS",
+                    value: $sceneFPSCap,
+                    range: 30...max(60, maxSceneFPS),
+                    step: 1
+                )
+
+                HStack {
+                    Spacer()
+                    Button {
+                        saveAndReapplySceneRenderingSettings()
+                    } label: {
+                        Label("Save & Reapply", systemImage: "arrow.clockwise")
+                    }
+                    .keyboardShortcut("s", modifiers: [.command])
+                }
+            } header: {
+                Text("Scene Rendering")
+            } footer: {
+                Text("Scene wallpapers use the lower of this FPS limit and the display refresh rate. MetalFX renders at a lower internal resolution, then upscales to reduce GPU load.")
+            }
         }
         .formStyle(.grouped)
+        .onAppear { loadSceneRenderingSettings() }
+    }
+
+    private func sceneSliderRow(
+        title: String,
+        valueText: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double>,
+        step: Double
+    ) -> some View {
+        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
+            GridRow {
+                Text(title)
+                    .gridColumnAlignment(.leading)
+                Text(valueText)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .frame(width: 64, alignment: .trailing)
+                Slider(value: value, in: range, step: step)
+                    .frame(minWidth: 320)
+            }
+        }
+    }
+
+    private func loadSceneRenderingSettings() {
+        sceneUpscalingEnabled = settings.sceneUpscalingEnabled
+        sceneUpscalingPercent = settings.sceneUpscalingPercent
+        sceneFPSCap = min(settings.sceneFPSCap, max(60, maxSceneFPS))
+    }
+
+    private func saveAndReapplySceneRenderingSettings() {
+        settings.sceneUpscalingEnabled = sceneUpscalingEnabled
+        settings.sceneUpscalingPercent = sceneUpscalingPercent
+        settings.sceneFPSCap = sceneFPSCap
+        viewModel.reapplyCurrentSceneWallpaper()
+    }
+
+    private static func refreshRate(for screen: NSScreen) -> Int {
+        guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
+              let mode = CGDisplayCopyDisplayMode(CGDirectDisplayID(number.uint32Value)) else {
+            return 60
+        }
+        let rate = mode.refreshRate
+        guard rate > 0 else { return 60 }
+        return max(30, min(240, Int(rate.rounded())))
     }
 }
 

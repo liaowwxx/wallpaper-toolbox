@@ -36,6 +36,31 @@ final class SettingsStore {
         set { defaults.set(newValue, forKey: UserDefaultsKey.wallpaperMuted) }
     }
 
+    var sceneUpscalingEnabled: Bool {
+        get {
+            defaults.object(forKey: UserDefaultsKey.sceneUpscalingEnabled) == nil
+                ? true
+                : defaults.bool(forKey: UserDefaultsKey.sceneUpscalingEnabled)
+        }
+        set { defaults.set(newValue, forKey: UserDefaultsKey.sceneUpscalingEnabled) }
+    }
+
+    var sceneUpscalingPercent: Double {
+        get {
+            let value = defaults.double(forKey: UserDefaultsKey.sceneUpscalingPercent)
+            return value > 0 ? value : 70
+        }
+        set { defaults.set(max(30, min(100, newValue)), forKey: UserDefaultsKey.sceneUpscalingPercent) }
+    }
+
+    var sceneFPSCap: Double {
+        get {
+            let value = defaults.double(forKey: UserDefaultsKey.sceneFPSCap)
+            return value > 0 ? value : 60
+        }
+        set { defaults.set(max(30, min(240, newValue)), forKey: UserDefaultsKey.sceneFPSCap) }
+    }
+
     // MARK: - Output
 
     var outputDirectory: URL? {

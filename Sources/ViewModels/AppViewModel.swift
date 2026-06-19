@@ -775,6 +775,39 @@ final class AppViewModel {
         }
     }
 
+    func reapplyCurrentSceneWallpaper() {
+        guard UserDefaults.standard.string(forKey: UserDefaultsKey.lastWallpaperKind) == "scene" else {
+            statusText = "No scene wallpaper to reapply"
+            return
+        }
+        guard let path = UserDefaults.standard.string(forKey: UserDefaultsKey.lastWallpaper) else {
+            statusText = "No scene wallpaper to reapply"
+            return
+        }
+
+        let url = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            statusText = "Scene wallpaper no longer exists"
+            return
+        }
+
+        do {
+            WallpaperService.killVideoWallpaper()
+            let isMuted = UserDefaults.standard.bool(forKey: UserDefaultsKey.lastWallpaperMuted)
+            let allScreens = UserDefaults.standard.bool(forKey: UserDefaultsKey.lastWallpaperAllScreens)
+            let userProperties = SceneWallpaperPropertiesService.propertiesOverrideJSON(for: url)
+            try sceneRendererService.setSceneWallpaper(
+                projectURL: url,
+                allScreens: allScreens,
+                isMuted: isMuted,
+                userProperties: userProperties
+            )
+            statusText = "Scene rendering settings applied"
+        } catch {
+            statusText = "Scene reapply failed: \(error.localizedDescription)"
+        }
+    }
+
     private func setFlatWallpaper(url: URL, allScreens: Bool) {
         do {
             sceneRendererService.stop()
