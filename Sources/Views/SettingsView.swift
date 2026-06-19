@@ -7,18 +7,18 @@ import SwiftUI
 struct SettingsView: View {
     var body: some View {
         TabView {
-            Tab("General", systemImage: "gearshape") {
+            Tab("Library", systemImage: "books.vertical") {
                 GeneralTab()
             }
             Tab("Wallpaper", systemImage: "display") {
                 WallpaperTab()
             }
-            Tab("Advanced", systemImage: "ellipsis.curlybraces") {
+            Tab("Extraction", systemImage: "shippingbox") {
                 AdvancedTab()
             }
         }
         .scenePadding()
-        .frame(width: 680, height: 540)
+        .frame(width: 720, height: 600)
     }
 }
 
@@ -28,6 +28,7 @@ private struct GeneralTab: View {
     @Environment(AppViewModel.self) private var viewModel
     @Environment(SettingsStore.self) private var settings
     @State private var selectedLibraryMode: LibraryMode = .local
+    @State private var repkgPath = ""
 
     private var libraryModeBinding: Binding<LibraryMode> {
         Binding(
@@ -46,8 +47,15 @@ private struct GeneralTab: View {
 
     private var scanModeBinding: Binding<ScanMode> {
         Binding(
-            get: { settings.scanMode },
-            set: { settings.scanMode = $0 }
+            get: { viewModel.scanMode },
+            set: { mode in
+                viewModel.scanMode = mode
+                settings.scanMode = mode
+                viewModel.saveState()
+                if viewModel.selectedDirectory != nil {
+                    Task { await viewModel.scan() }
+                }
+            }
         )
     }
 
@@ -61,52 +69,15 @@ private struct GeneralTab: View {
                 }
                 .pickerStyle(.segmented)
 
-                if selectedLibraryMode == .remote {
-                    TextField("Server URL", text: Binding(
-                        get: { settings.remoteServerURL },
-                        set: { settings.remoteServerURL = $0 }
-                    ))
-                    TextField("Username", text: Binding(
-                        get: { settings.remoteUsername },
-                        set: { settings.remoteUsername = $0 }
-                    ))
-                    SecureField("Password", text: Binding(
-                        get: { settings.remotePassword },
-                        set: { settings.remotePassword = $0 }
-                    ))
-                    HStack {
-                        Text(settings.remoteDownloadDirectory.path)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Spacer()
-                        Button("Change...") {
-                            viewModel.selectRemoteDownloadDirectory()
-                        }
-                    }
-                    HStack {
-                        if viewModel.isRemoteConnecting {
-                            ProgressView().scaleEffect(0.65)
-                        }
-                        Button {
-                            Task { await viewModel.connectRemoteLibrary() }
-                        } label: {
-                            Label("Connect", systemImage: "network")
-                        }
-                        .disabled(viewModel.isRemoteConnecting)
-                        if !viewModel.remoteConnectionStatus.isEmpty {
-                            Text(viewModel.remoteConnectionStatus)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
+                if selectedLibraryMode == .local {
+                    localLibraryControls
+                } else {
+                    remoteLibraryControls
                 }
             } header: {
                 Text("Library")
             } footer: {
-                Text("Remote mode connects to the Windows demo server and downloads original wallpaper folders into the selected local directory before using the normal local wallpaper pipeline.")
+                Text("Local mode scans a folder on this Mac. Remote mode downloads original wallpaper folders before using the same local pipeline.")
             }
 
             Section {
@@ -120,19 +91,211 @@ private struct GeneralTab: View {
             }
 
             Section {
-                Toggle("Restore wallpaper on launch", isOn: Binding(
-                    get: { settings.restoreLastWallpaper },
-                    set: { settings.restoreLastWallpaper = $0 }
-                ))
+                directoryRow(
+                    title: "Output",
+                    path: viewModel.outputDirectory?.path,
+                    emptyTitle: "No output directory selected"
+                ) {
+                    viewModel.selectOutputDirectory()
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("RePKG Binary")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextField("Default bundled RePKG", text: $repkgPath)
+                        .textFieldStyle(.roundedBorder)
+                    HStack {
+                        Button {
+                            browseRePKGBinary()
+                        } label: {
+                            Label("Browse", systemImage: "folder")
+                        }
+                        Button {
+                            repkgPath = ""
+                            unsetenv("REPKG_PATH")
+                        } label: {
+                            Label("Use Bundled", systemImage: "arrow.uturn.backward")
+                        }
+                        .disabled(repkgPath.isEmpty)
+                    }
+                }
+                .onChange(of: repkgPath) {
+                    if repkgPath.isEmpty {
+                        unsetenv("REPKG_PATH")
+                    } else {
+                        setenv("REPKG_PATH", repkgPath, 1)
+                    }
+                }
             } header: {
-                Text("Behavior")
+                Text("Directories")
             } footer: {
-                Text("When enabled, the last set wallpaper will be restored when the app launches.")
+                Text("The bundled RePKG binary is used when no override path is set.")
+            }
+
+            Section {
+                HStack {
+                    Text("\(viewModel.wallpapers.count) wallpapers")
+                    Spacer()
+                    if !viewModel.statusText.isEmpty {
+                        Text(viewModel.statusText)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                if !viewModel.selectedIDs.isEmpty {
+                    Text("\(viewModel.selectedIDs.count) selected")
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Status")
+            }
+
+            Section {
+                HStack {
+                    Button {
+                        viewModel.selectAll()
+                    } label: {
+                        Label("Select All", systemImage: "checkmark.rectangle")
+                    }
+                    .disabled(viewModel.wallpapers.isEmpty)
+
+                    Button {
+                        viewModel.deselectAll()
+                    } label: {
+                        Label("Deselect", systemImage: "xmark.rectangle")
+                    }
+                    .disabled(viewModel.selectedIDs.isEmpty)
+
+                    Spacer()
+
+                    Button {
+                        viewModel.showExtractSheet = true
+                    } label: {
+                        Label("Extract Selected", systemImage: "shippingbox")
+                    }
+                    .disabled(viewModel.selectedIDs.isEmpty)
+                }
+            } header: {
+                Text("Actions")
             }
         }
         .formStyle(.grouped)
         .onAppear {
             selectedLibraryMode = settings.libraryMode
+            repkgPath = ProcessInfo.processInfo.environment["REPKG_PATH"] ?? ""
+        }
+    }
+
+    private var localLibraryControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                viewModel.selectDirectory()
+            } label: {
+                Label("Open Folder", systemImage: "folder")
+            }
+
+            if let dir = viewModel.selectedDirectory {
+                pathSummary(title: dir.lastPathComponent, path: dir.path)
+                HStack {
+                    if viewModel.isScanning {
+                        ProgressView().scaleEffect(0.65)
+                    }
+                    Button {
+                        Task { await viewModel.scan() }
+                    } label: {
+                        Label("Refresh", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(viewModel.isScanning)
+                }
+            }
+        }
+    }
+
+    private var remoteLibraryControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            TextField("Server URL", text: Binding(
+                get: { settings.remoteServerURL },
+                set: { settings.remoteServerURL = $0 }
+            ))
+            TextField("Username", text: Binding(
+                get: { settings.remoteUsername },
+                set: { settings.remoteUsername = $0 }
+            ))
+            SecureField("Password", text: Binding(
+                get: { settings.remotePassword },
+                set: { settings.remotePassword = $0 }
+            ))
+            directoryRow(
+                title: "Download Folder",
+                path: settings.remoteDownloadDirectory.path,
+                emptyTitle: "No download folder selected"
+            ) {
+                viewModel.selectRemoteDownloadDirectory()
+            }
+            HStack {
+                if viewModel.isRemoteConnecting {
+                    ProgressView().scaleEffect(0.65)
+                }
+                Button {
+                    Task { await viewModel.connectRemoteLibrary() }
+                } label: {
+                    Label("Connect", systemImage: "network")
+                }
+                .disabled(viewModel.isRemoteConnecting)
+                if !viewModel.remoteConnectionStatus.isEmpty {
+                    Text(viewModel.remoteConnectionStatus)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+        }
+    }
+
+    private func directoryRow(
+        title: String,
+        path: String?,
+        emptyTitle: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                Text(path ?? emptyTitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer()
+            Button("Change...", action: action)
+        }
+    }
+
+    private func pathSummary(title: String, path: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.caption)
+                .fontWeight(.medium)
+            Text(path)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+    }
+
+    private func browseRePKGBinary() {
+        Task {
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = false
+            panel.allowsMultipleSelection = false
+            panel.message = "Select RePKG binary"
+            if await panel.begin() == .OK, let url = panel.url {
+                repkgPath = url.path
+            }
         }
     }
 }
@@ -154,6 +317,11 @@ private struct WallpaperTab: View {
     var body: some View {
         Form {
             Section {
+                Toggle("Restore wallpaper on launch", isOn: Binding(
+                    get: { settings.restoreLastWallpaper },
+                    set: { settings.restoreLastWallpaper = $0 }
+                ))
+
                 Toggle("Mute video wallpaper", isOn: Binding(
                     get: { settings.wallpaperMuted },
                     set: { settings.wallpaperMuted = $0 }
@@ -166,7 +334,7 @@ private struct WallpaperTab: View {
             } header: {
                 Text("Playback")
             } footer: {
-                Text("When setting a video wallpaper, also capture the first frame as a static fallback for spaces and login screen.")
+                Text("Restore reapplies the last wallpaper on launch. Static replacement captures the first video frame as a fallback for spaces and login screen.")
             }
 
             Section {

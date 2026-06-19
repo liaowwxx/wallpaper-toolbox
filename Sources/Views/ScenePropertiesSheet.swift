@@ -2,21 +2,42 @@ import AppKit
 import SwiftUI
 
 struct ScenePropertiesSheet: View {
+    let item: WallpaperItem
+
+    var body: some View {
+        ScenePropertiesEditor(item: item, showsCloseButton: true, showsDoneButton: true)
+            .frame(width: 460, height: 560)
+    }
+}
+
+struct ScenePropertiesEditor: View {
     @Environment(AppViewModel.self) private var viewModel
     @Environment(\.dismiss) private var dismiss
 
     let item: WallpaperItem
+    var showsCloseButton = false
+    var showsDoneButton = false
 
     @State private var rows: [SceneWallpaperProperty] = []
     @State private var isLoading = true
     @State private var applyTask: Task<Void, Never>?
 
-    private let labelWidth: CGFloat = 120
+    private var isCompact: Bool {
+        !showsCloseButton && !showsDoneButton
+    }
+
+    private var labelWidth: CGFloat {
+        isCompact ? 92 : 120
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
+        VStack(alignment: .leading, spacing: isCompact ? 6 : 0) {
+            if isCompact {
+                compactTitle
+            } else {
+                header
+                Divider()
+            }
 
             Group {
                 if isLoading {
@@ -27,16 +48,30 @@ struct ScenePropertiesSheet: View {
                     propertiesList
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: isCompact ? nil : .infinity)
 
             if !rows.isEmpty {
-                Divider()
+                if !isCompact {
+                    Divider()
+                }
                 footer
             }
         }
-        .frame(width: 460, height: 560)
+        .controlSize(isCompact ? .small : .regular)
         .task { loadProperties() }
+        .onChange(of: item.id) {
+            applyTask?.cancel()
+            loadProperties()
+        }
         .onDisappear { applyTask?.cancel() }
+    }
+
+    private var compactTitle: some View {
+        Text(item.title)
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .lineLimit(2)
+            .padding(.bottom, 2)
     }
 
     private var header: some View {
@@ -58,13 +93,15 @@ struct ScenePropertiesSheet: View {
 
             Spacer()
 
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
+            if showsCloseButton {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                }
+                .buttonStyle(.borderless)
+                .help("Close")
             }
-            .buttonStyle(.borderless)
-            .help("Close")
         }
         .padding(16)
     }
@@ -73,54 +110,82 @@ struct ScenePropertiesSheet: View {
         VStack(spacing: 12) {
             ProgressView()
             Text("Loading properties...")
-                .font(.callout)
+                .font(isCompact ? .caption : .callout)
                 .foregroundStyle(.secondary)
         }
     }
 
     private var emptyState: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "slider.horizontal.3")
-                .font(.largeTitle)
-                .foregroundStyle(.secondary)
-            Text("No editable scene properties")
-                .font(.headline)
+        VStack(alignment: isCompact ? .leading : .center, spacing: isCompact ? 4 : 10) {
+            if !isCompact {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.largeTitle)
+                    .foregroundStyle(.secondary)
+                Text("No editable scene properties")
+                    .font(.headline)
+            }
             Text("This wallpaper does not declare configurable properties in project.json.")
-                .font(.callout)
+                .font(isCompact ? .caption : .callout)
                 .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+                .multilineTextAlignment(isCompact ? .leading : .center)
                 .frame(maxWidth: 320)
         }
-        .padding(24)
+        .padding(isCompact ? 0 : 24)
     }
 
+    @ViewBuilder
     private var propertiesList: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
+        if isCompact {
+            VStack(alignment: .leading, spacing: 6) {
                 ForEach(rows) { row in
                     propertyRow(row)
                 }
             }
-            .padding(16)
+        } else {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(rows) { row in
+                        propertyRow(row)
+                    }
+                }
+                .padding(16)
+            }
         }
     }
 
+    @ViewBuilder
     private var footer: some View {
-        HStack {
-            Button {
-                resetAll()
-            } label: {
-                Label("Reset All", systemImage: "arrow.counterclockwise")
+        if isCompact {
+            HStack {
+                Spacer()
+                Button {
+                    resetAll()
+                } label: {
+                    Label("Reset", systemImage: "arrow.counterclockwise")
+                }
+                .font(.caption)
+                .buttonStyle(.plain)
             }
+            .padding(.top, 4)
+        } else {
+            HStack {
+                Button {
+                    resetAll()
+                } label: {
+                    Label("Reset All", systemImage: "arrow.counterclockwise")
+                }
 
-            Spacer()
+                Spacer()
 
-            Button("Done") {
-                dismiss()
+                if showsDoneButton {
+                    Button("Done") {
+                        dismiss()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                }
             }
-            .keyboardShortcut(.defaultAction)
+            .padding(16)
         }
-        .padding(16)
     }
 
     @ViewBuilder
@@ -167,8 +232,8 @@ struct ScenePropertiesSheet: View {
         return VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(label(for: row))
-                    .font(.callout)
-                    .frame(width: labelWidth, alignment: .leading)
+                    .font(isCompact ? .caption : .callout)
+                    .frame(width: isCompact ? nil : labelWidth, alignment: .leading)
                 Spacer()
                 Text(sliderDisplayText(row))
                     .font(.caption.monospacedDigit())
@@ -176,27 +241,36 @@ struct ScenePropertiesSheet: View {
                     .frame(minWidth: 48, alignment: .trailing)
             }
             Slider(value: sliderBinding(for: row), in: minimum...maximum, step: step)
-                .padding(.leading, labelWidth + 8)
+                .padding(.leading, isCompact ? 0 : labelWidth + 8)
         }
     }
 
+    @ViewBuilder
     private func toggleRow(_ row: SceneWallpaperProperty) -> some View {
-        Toggle(isOn: boolBinding(for: row)) {
-            Text(label(for: row))
-                .font(.callout)
+        if isCompact {
+            Toggle(isOn: boolBinding(for: row)) {
+                Text(label(for: row))
+                    .font(.caption)
+            }
+            .toggleStyle(.checkbox)
+        } else {
+            Toggle(isOn: boolBinding(for: row)) {
+                Text(label(for: row))
+                    .font(.callout)
+            }
+            .toggleStyle(.switch)
         }
-        .toggleStyle(.switch)
     }
 
     private func colorRow(_ row: SceneWallpaperProperty) -> some View {
         HStack {
             Text(label(for: row))
-                .font(.callout)
+                .font(isCompact ? .caption : .callout)
                 .frame(width: labelWidth, alignment: .leading)
             Spacer()
             ColorPicker("", selection: colorBinding(for: row), supportsOpacity: false)
                 .labelsHidden()
-                .frame(width: 80)
+                .frame(width: isCompact ? 44 : 80)
         }
     }
 
@@ -204,12 +278,12 @@ struct ScenePropertiesSheet: View {
         fieldRow(row) {
             Picker("", selection: stringBinding(for: row)) {
                 ForEach(optionKeys(for: row), id: \.self) { key in
-                    Text(row.options?[key] ?? key).tag(key)
+                    Text(cleanDisplayText(row.options?[key] ?? key)).tag(key)
                 }
             }
             .labelsHidden()
             .pickerStyle(.menu)
-            .frame(maxWidth: 220)
+            .frame(maxWidth: isCompact ? .infinity : 220)
         }
     }
 
@@ -217,7 +291,8 @@ struct ScenePropertiesSheet: View {
         fieldRow(row) {
             TextField("", text: stringBinding(for: row))
                 .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 240)
+                .font(isCompact ? .caption : .body)
+                .frame(maxWidth: isCompact ? .infinity : 240)
         }
     }
 
@@ -242,35 +317,51 @@ struct ScenePropertiesSheet: View {
         }
     }
 
+    @ViewBuilder
     private func fieldRow<Content: View>(_ row: SceneWallpaperProperty, @ViewBuilder content: () -> Content) -> some View {
-        HStack(spacing: 12) {
-            Text(label(for: row))
-                .font(.callout)
-                .frame(width: labelWidth, alignment: .leading)
-            Spacer(minLength: 8)
-            content()
+        if isCompact {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(label(for: row))
+                    .font(.caption)
+                content()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        } else {
+            HStack(spacing: 12) {
+                Text(label(for: row))
+                    .font(.callout)
+                    .frame(width: labelWidth, alignment: .leading)
+                Spacer(minLength: 8)
+                content()
+            }
         }
     }
 
+    @ViewBuilder
     private func rowCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        content()
-            .padding(12)
-            .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+        if isCompact {
+            content()
+                .padding(.vertical, 3)
+        } else {
+            content()
+                .padding(12)
+                .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+        }
     }
 
     private func sectionHeader(_ title: String) -> some View {
-        Text(title)
-            .font(.subheadline.weight(.semibold))
+        Text(cleanDisplayText(title))
+            .font(isCompact ? .caption.weight(.semibold) : .subheadline.weight(.semibold))
             .foregroundStyle(.secondary)
-            .padding(.top, 6)
+            .padding(.top, isCompact ? 4 : 6)
     }
 
     private func descriptionRow(_ text: String) -> some View {
-        Text(text)
-            .font(.caption)
+        Text(cleanDisplayText(text))
+            .font(isCompact ? .caption2 : .caption)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 4)
+            .padding(.horizontal, isCompact ? 0 : 4)
     }
 
     private func loadProperties() {
@@ -313,7 +404,21 @@ struct ScenePropertiesSheet: View {
 
     private func label(for row: SceneWallpaperProperty) -> String {
         let raw = row.text?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return raw?.isEmpty == false ? raw! : row.key
+        let cleaned = cleanDisplayText(raw ?? "")
+        return cleaned.isEmpty ? row.key : cleaned
+    }
+
+    private func cleanDisplayText(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "(?i)<br\\s*/?>", with: "\n", options: .regularExpression)
+            .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&#39;", with: "'")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func optionKeys(for row: SceneWallpaperProperty) -> [String] {

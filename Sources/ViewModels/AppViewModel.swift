@@ -45,8 +45,7 @@ final class AppViewModel {
     var wallpaperStatus = ""
     var wallpaperForAllScreens = false
     var wallpaperTargetItem: WallpaperItem?
-    var showSceneProperties = false
-    var scenePropertiesTargetItem: WallpaperItem?
+    var currentSceneWallpaperPath: String?
 
     // Settings are now in SettingsStore, injected via environment.
     // These mirrors exist for backward-compatible access within the ViewModel.
@@ -213,6 +212,16 @@ final class AppViewModel {
     var selectedWallpapers: [WallpaperItem] {
         let ids = selectedIDs
         return wallpapers.filter { ids.contains($0.id) }
+    }
+
+    var currentSceneWallpaperItem: WallpaperItem? {
+        guard let path = currentSceneWallpaperPath else { return nil }
+        let url = URL(fileURLWithPath: path)
+        guard sceneRendererService.isRendering(projectURL: url) else { return nil }
+        return wallpapers.first {
+            $0.type.lowercased() == "scene"
+                && $0.path.standardizedFileURL == url.standardizedFileURL
+        }
     }
 
     init(settingsStore: SettingsStore) {
@@ -529,6 +538,10 @@ final class AppViewModel {
             )
             try await unzipArchive(archive, to: installPlan.destination)
             let downloadedFolderName = installPlan.folderName
+            let downloadedFolderURL = settings.remoteDownloadDirectory.appendingPathComponent(downloadedFolderName, isDirectory: true)
+            guard remoteDownloadedFolderSatisfies(record: record, folderURL: downloadedFolderURL) else {
+                throw RemoteLibraryError.downloadFailed("Downloaded archive is incomplete. The expected \(record.type) asset was not found.")
+            }
             var registry = loadRemoteDownloadRegistry(root: settings.remoteDownloadDirectory)
             registry[record.id] = downloadedFolderName
             saveRemoteDownloadRegistry(registry, root: settings.remoteDownloadDirectory)
@@ -581,7 +594,7 @@ final class AppViewModel {
             ?? inferredItem
             ?? WallpaperItem(directory: folderURL, project: nil, preview: nil, pkg: nil)
         applyRemoteMetadata(to: &item, record: record)
-        item.isDownloaded = isExistingDirectory(item.path)
+        item.isDownloaded = remoteDownloadedFolderSatisfies(record: record, folderURL: item.path)
         return item
     }
 
@@ -594,7 +607,7 @@ final class AppViewModel {
             pkg: findPKG(in: folderURL)
         )
         applyRemoteMetadata(to: &item, record: record)
-        item.isDownloaded = true
+        item.isDownloaded = remoteDownloadedFolderSatisfies(record: record, folderURL: folderURL)
         return item
     }
 
@@ -617,6 +630,30 @@ final class AppViewModel {
         var isDirectory: ObjCBool = false
         return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
             && isDirectory.boolValue
+    }
+
+    private func remoteDownloadedFolderSatisfies(record: RemoteWallpaperRecord, folderURL: URL) -> Bool {
+        guard isExistingDirectory(folderURL) else { return false }
+
+        switch record.type {
+        case "video", "image":
+            let expectedAssets = record.assets.filter { $0.kind.lowercased() == record.type }
+            let localAssets = AssetScanner.scan(folderURL)
+            guard !localAssets.isEmpty else { return false }
+
+            if expectedAssets.isEmpty {
+                return localAssets.contains { asset in
+                    record.type == "video" ? asset.isVideo : !asset.isVideo
+                }
+            }
+
+            let localNames = Set(localAssets.map { $0.name.lowercased() })
+            return expectedAssets.contains { asset in
+                localNames.contains(asset.name.lowercased())
+            }
+        default:
+            return true
+        }
     }
 
     private func markRemoteWallpaperDownloaded(record: RemoteWallpaperRecord, folderName: String, root: URL) {
@@ -1235,6 +1272,13 @@ final class AppViewModel {
                 userProperties: userProperties
             )
             saveLastSceneWallpaper(item.path, isMuted: wallpaperMuted, allScreens: wallpaperForAllScreens)
+            if autoReplaceStaticWithFirstFrame {
+                let allScreens = wallpaperForAllScreens
+                let title = item.title
+                Task {
+                    await replaceStaticWallpaperWithCurrentSceneFrame(allScreens: allScreens, title: title)
+                }
+            }
             statusText = wallpaperForAllScreens
                 ? "Scene wallpaper rendering on all screens: \(item.title)"
                 : "Scene wallpaper rendering: \(item.title)"
@@ -1243,6 +1287,20 @@ final class AppViewModel {
         }
 
         wallpaperTargetItem = nil
+    }
+
+    private func replaceStaticWallpaperWithCurrentSceneFrame(allScreens: Bool, title: String) async {
+        guard let frameURL = await sceneRendererService.captureFirstFrame() else {
+            statusText = "Scene rendering: \(title) (first-frame capture unavailable)"
+            return
+        }
+
+        do {
+            try wallpaperService.setImageWallpaper(filePath: frameURL, allScreens: allScreens)
+            statusText = "Scene wallpaper rendering: \(title) (static first frame applied)"
+        } catch {
+            statusText = "Scene first-frame wallpaper failed: \(error.localizedDescription)"
+        }
     }
 
     func finishWallpaperSelection(_ asset: AssetFile) {
@@ -1316,12 +1374,6 @@ final class AppViewModel {
         startWallpaperPipeline(item, allScreens: true)
     }
 
-    func openSceneProperties(_ item: WallpaperItem) {
-        guard item.type.lowercased() == "scene" else { return }
-        scenePropertiesTargetItem = item
-        showSceneProperties = true
-    }
-
     func refreshSceneWallpaperProperties(for item: WallpaperItem) {
         guard item.type.lowercased() == "scene" else { return }
         guard sceneRendererService.isRendering(projectURL: item.path) else {
@@ -1365,6 +1417,7 @@ final class AppViewModel {
                 isMuted: isMuted,
                 userProperties: userProperties
             )
+            currentSceneWallpaperPath = url.path
             statusText = "Scene rendering settings applied"
         } catch {
             statusText = "Scene reapply failed: \(error.localizedDescription)"
@@ -1487,10 +1540,12 @@ final class AppViewModel {
                 let allScreens = UserDefaults.standard.bool(forKey: UserDefaultsKey.lastWallpaperAllScreens)
                 let userProperties = SceneWallpaperPropertiesService.propertiesOverrideJSON(for: url)
                 try sceneRendererService.setSceneWallpaper(projectURL: url, allScreens: allScreens, isMuted: isMuted, userProperties: userProperties)
+                currentSceneWallpaperPath = url.path
             } else {
                 sceneRendererService.stop()
                 WallpaperService.killVideoWallpaper()
                 try wallpaperService.setWallpaper(filePath: url, isMuted: isMuted)
+                currentSceneWallpaperPath = nil
             }
         } catch {
             statusText = "Restore wallpaper failed"
@@ -1502,6 +1557,7 @@ final class AppViewModel {
         UserDefaults.standard.set(isMuted, forKey: UserDefaultsKey.lastWallpaperMuted)
         UserDefaults.standard.set("media", forKey: UserDefaultsKey.lastWallpaperKind)
         UserDefaults.standard.removeObject(forKey: UserDefaultsKey.lastWallpaperAllScreens)
+        currentSceneWallpaperPath = nil
     }
 
     private func saveLastSceneWallpaper(_ url: URL, isMuted: Bool, allScreens: Bool) {
@@ -1509,6 +1565,7 @@ final class AppViewModel {
         UserDefaults.standard.set(isMuted, forKey: UserDefaultsKey.lastWallpaperMuted)
         UserDefaults.standard.set("scene", forKey: UserDefaultsKey.lastWallpaperKind)
         UserDefaults.standard.set(allScreens, forKey: UserDefaultsKey.lastWallpaperAllScreens)
+        currentSceneWallpaperPath = url.path
     }
 
     func saveState() {

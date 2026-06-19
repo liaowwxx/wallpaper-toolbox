@@ -2,7 +2,6 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(AppViewModel.self) private var viewModel
-    @State private var repkgPath = ""
 
     var body: some View {
         @Bindable var viewModel = viewModel
@@ -19,18 +18,10 @@ struct ContentView: View {
                 AssetPickerSheet(item: item, assets: viewModel.wallpaperAssets)
             }
         }
-        .sheet(isPresented: $viewModel.showSceneProperties) {
-            if let item = viewModel.scenePropertiesTargetItem {
-                ScenePropertiesSheet(item: item)
-            }
-        }
         .sheet(isPresented: $viewModel.showNewCollectionSheet) {
             NewCollectionSheet()
         }
         .searchable(text: $viewModel.searchText, placement: .automatic, prompt: "Search wallpapers...")
-        .onAppear {
-            repkgPath = ProcessInfo.processInfo.environment["REPKG_PATH"] ?? ""
-        }
         .onChange(of: viewModel.searchText) { viewModel.onSearchTextChanged() }
     }
 
@@ -38,12 +29,8 @@ struct ContentView: View {
 
     private var sidebar: some View {
         List {
-            WorkspaceSection()
-            DirectoriesSection(repkgPath: $repkgPath)
             FiltersSection()
-            WallpaperSection()
-            ActionsSection()
-            StatusSection()
+            ScenePropertiesSidebarSection()
         }
         .listStyle(.sidebar)
         .frame(minWidth: 200, idealWidth: 240)
@@ -107,104 +94,6 @@ private struct RemoteDownloadProgressPanel: View {
 }
 
 // MARK: - Sidebar Sections
-
-private struct WorkspaceSection: View {
-    @Environment(AppViewModel.self) private var viewModel
-
-    var body: some View {
-        Section {
-            Button(action: { viewModel.selectDirectory() }) {
-                Label("Open Folder", systemImage: "folder")
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Open folder")
-            .accessibilityHint("Select a directory containing Wallpaper Engine wallpapers")
-
-            if let dir = viewModel.selectedDirectory {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(dir.lastPathComponent)
-                        .font(.caption).fontWeight(.medium)
-                    Text(dir.path)
-                        .font(.caption2).foregroundStyle(.secondary)
-                        .lineLimit(1).truncationMode(.middle)
-                }
-                .padding(.vertical, 2)
-
-                Picker("Scan Mode", selection: Binding(get: { viewModel.scanMode }, set: { viewModel.scanMode = $0 })) {
-                    ForEach(ScanMode.allCases, id: \.self) { mode in
-                        Label(mode.label, systemImage: mode == .subdir ? "folder" : "doc").tag(mode)
-                    }
-                }
-                .labelsHidden()
-                .accessibilityLabel("Scan mode")
-                .onChange(of: viewModel.scanMode) {
-                    viewModel.saveState()
-                    Task { await viewModel.scan() }
-                }
-
-                HStack(spacing: 6) {
-                    if viewModel.isScanning {
-                        ProgressView().scaleEffect(0.6)
-                    }
-                    Button("Refresh") {
-                        Task { await viewModel.scan() }
-                    }
-                    .disabled(viewModel.isScanning)
-                }
-            }
-        }
-    }
-}
-
-private struct DirectoriesSection: View {
-    @Environment(AppViewModel.self) private var viewModel
-    @Binding var repkgPath: String
-
-    var body: some View {
-        Section("Directories") {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Output").font(.caption).foregroundStyle(.secondary)
-                if let out = viewModel.outputDirectory {
-                    Text(out.path)
-                        .font(.caption2).lineLimit(1).truncationMode(.middle)
-                    Button("Change...") { viewModel.selectOutputDirectory() }
-                        .font(.caption)
-                } else {
-                    Button("Select Output...") { viewModel.selectOutputDirectory() }
-                        .font(.caption)
-                }
-            }
-            .padding(.vertical, 2)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("RePKG Binary").font(.caption).foregroundStyle(.secondary)
-                TextField("Path", text: $repkgPath)
-                    .font(.caption)
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityLabel("RePKG binary path")
-                HStack {
-                    Button("Browse...") {
-                        Task {
-                            let panel = NSOpenPanel()
-                            panel.canChooseFiles = true
-                            panel.canChooseDirectories = false
-                            panel.allowsMultipleSelection = false
-                            if await panel.begin() == .OK, let url = panel.url {
-                                repkgPath = url.path
-                                setenv("REPKG_PATH", url.path, 1)
-                            }
-                        }
-                    }
-                    .font(.caption2)
-                    Text("Default: resources/osx-arm64/RePKG")
-                        .font(.caption2).foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            .padding(.vertical, 2)
-        }
-    }
-}
 
 private struct FiltersSection: View {
     @Environment(AppViewModel.self) private var viewModel
@@ -283,67 +172,15 @@ private struct FiltersSection: View {
     }
 }
 
-private struct WallpaperSection: View {
-    @Environment(SettingsStore.self) private var settings
-
-    var body: some View {
-        Section("Wallpaper") {
-            Toggle("Restore on launch", isOn: Binding(
-                get: { settings.restoreLastWallpaper },
-                set: { settings.restoreLastWallpaper = $0 }
-            ))
-                .font(.caption)
-                .accessibilityHint("Automatically restore the last set wallpaper when the app launches")
-            Toggle("Mute playback", isOn: Binding(
-                get: { settings.wallpaperMuted },
-                set: { settings.wallpaperMuted = $0 }
-            ))
-                .font(.caption)
-                .accessibilityHint("Play video wallpapers without sound")
-            Toggle("Replace wallpaper", isOn: Binding(
-                get: { settings.autoReplaceStaticWithFirstFrame },
-                set: { settings.autoReplaceStaticWithFirstFrame = $0 }
-            ))
-                .font(.caption)
-                .accessibilityHint("Capture first video frame as a static wallpaper fallback")
-        }
-    }
-}
-
-private struct ActionsSection: View {
+private struct ScenePropertiesSidebarSection: View {
     @Environment(AppViewModel.self) private var viewModel
 
     var body: some View {
-        Section {
-            Button(action: { viewModel.selectAll() }) {
-                Label("Select All", systemImage: "checkmark.rectangle")
-            }
-            .buttonStyle(.plain)
-
-            Button(action: { viewModel.showExtractSheet = true }) {
-                Label("Extract...", systemImage: "shippingbox")
-            }
-            .buttonStyle(.plain)
-            .disabled(viewModel.selectedIDs.isEmpty)
-        }
-    }
-}
-
-private struct StatusSection: View {
-    @Environment(AppViewModel.self) private var viewModel
-
-    var body: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("\(viewModel.wallpapers.count) wallpapers").font(.caption)
-                if viewModel.selectedIDs.count > 0 {
-                    Text("\(viewModel.selectedIDs.count) selected")
-                        .font(.caption).foregroundStyle(.tint)
-                }
-                if !viewModel.statusText.isEmpty {
-                    Text(viewModel.statusText)
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                }
+        if let item = viewModel.currentSceneWallpaperItem {
+            Section("Scene Properties") {
+                ScenePropertiesEditor(item: item)
+                    .padding(.vertical, 2)
+                    .id(item.id)
             }
         }
     }

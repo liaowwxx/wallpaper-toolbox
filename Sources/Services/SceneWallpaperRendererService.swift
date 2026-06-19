@@ -1,6 +1,8 @@
 import AppKit
 import Darwin
 import Foundation
+import ImageIO
+import ScreenCaptureKit
 
 @MainActor
 final class SceneWallpaperRendererService {
@@ -71,6 +73,17 @@ final class SceneWallpaperRendererService {
 
     func isRendering(projectURL: URL) -> Bool {
         activeProjectURL?.standardizedFileURL == projectURL.standardizedFileURL
+    }
+
+    func captureFirstFrame() async -> URL? {
+        let pids = Set(processes.values.map { Int($0.pid) })
+        guard !pids.isEmpty else { return nil }
+
+        try? await Task.sleep(for: .milliseconds(800))
+        guard let image = await Self.captureLargestWindowImage(forPIDs: pids) else {
+            return nil
+        }
+        return Self.writeCapturedFrame(image)
     }
 
     func stop() {
@@ -292,6 +305,53 @@ final class SceneWallpaperRendererService {
 
     private static func clearPersistedRendererPIDs() {
         UserDefaults.standard.removeObject(forKey: UserDefaultsKey.sceneRendererPIDs)
+    }
+
+    private static func captureLargestWindowImage(forPIDs pids: Set<Int>) async -> CGImage? {
+        guard let content = try? await SCShareableContent.current else { return nil }
+        let candidateWindows = content.windows
+            .filter { window in
+                guard let app = window.owningApplication else { return false }
+                return pids.contains(Int(app.processID))
+                    && window.isOnScreen
+                    && window.frame.width > 8
+                    && window.frame.height > 8
+            }
+            .sorted { lhs, rhs in
+                lhs.frame.width * lhs.frame.height > rhs.frame.width * rhs.frame.height
+            }
+
+        for window in candidateWindows {
+            let filter = SCContentFilter(desktopIndependentWindow: window)
+            let configuration = SCStreamConfiguration()
+            configuration.width = max(1, Int(window.frame.width.rounded()))
+            configuration.height = max(1, Int(window.frame.height.rounded()))
+            configuration.showsCursor = false
+            configuration.scalesToFit = false
+            configuration.preservesAspectRatio = true
+
+            if let image = try? await SCScreenshotManager.captureImage(
+                contentFilter: filter,
+                configuration: configuration
+            ) {
+                return image
+            }
+        }
+
+        return nil
+    }
+
+    private static func writeCapturedFrame(_ image: CGImage) -> URL? {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("repkg-scene-frame-\(Int(Date().timeIntervalSince1970)).jpg")
+        guard let destination = CGImageDestinationCreateWithURL(url as CFURL, "public.jpeg" as CFString, 1, nil) else {
+            return nil
+        }
+        let options: [CFString: Any] = [
+            kCGImageDestinationLossyCompressionQuality: AppConstants.frameCaptureJPEGQuality
+        ]
+        CGImageDestinationAddImage(destination, image, options as CFDictionary)
+        return CGImageDestinationFinalize(destination) ? url : nil
     }
 }
 

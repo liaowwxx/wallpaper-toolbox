@@ -100,7 +100,7 @@ def download_source_folder(item_id: str) -> FileResponse:
     archive_path = temp_file.name
     temp_file.close()
     with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        add_directory_to_archive(record.source_dir, archive, record.source_dir.name)
+        add_record_to_archive(config.root_path, record, archive)
     Path(archive_path).chmod(0o600)
 
     filename = f"{record.source_dir.name}.zip"
@@ -201,14 +201,39 @@ def safe_library_path(root: Path, relative_path: str) -> Path:
     return target
 
 
-def add_directory_to_archive(directory: Path, archive: zipfile.ZipFile, root_name: str) -> None:
+def add_record_to_archive(root: Path, record, archive: zipfile.ZipFile) -> None:
+    root_name = record.source_dir.name
+    written: set[str] = set()
+    add_directory_to_archive(record.source_dir, archive, root_name, written)
+
+    for asset in record.assets:
+        asset_path = safe_library_path(root, asset.relative_path)
+        if not asset_path.exists() or not asset_path.is_file():
+            continue
+        try:
+            relative = asset_path.relative_to(record.source_dir)
+            archive_name = Path(root_name) / relative
+        except ValueError:
+            archive_name = Path(root_name) / asset_path.name
+        write_archive_member(asset_path, archive, archive_name, written)
+
+
+def add_directory_to_archive(directory: Path, archive: zipfile.ZipFile, root_name: str, written: set[str]) -> None:
     for path in directory.rglob("*"):
         if path.is_dir():
             continue
         relative = path.relative_to(directory)
         if any(part in {"__pycache__", ".git"} for part in relative.parts):
             continue
-        archive.write(path, Path(root_name) / relative)
+        write_archive_member(path, archive, Path(root_name) / relative, written)
+
+
+def write_archive_member(path: Path, archive: zipfile.ZipFile, archive_name: Path, written: set[str]) -> None:
+    key = archive_name.as_posix()
+    if key in written:
+        return
+    archive.write(path, archive_name)
+    written.add(key)
 
 
 def allowed_file_paths(config: ServerConfig) -> set[str]:

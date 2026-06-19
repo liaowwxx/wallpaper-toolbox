@@ -230,7 +230,6 @@ private struct WallpaperCardInternal: View {
 
     @ViewBuilder
     private var contextMenuContent: some View {
-        let isScene = item.type.lowercased() == "scene"
         let needsExtract = item.pkgPath != nil
 
         if item.isRemote && !isDownloaded {
@@ -243,12 +242,6 @@ private struct WallpaperCardInternal: View {
             }
             Button(needsExtract ? "Set on All Screens..." : "Set on All Screens") {
                 viewModel.setAsWallpaperForAllScreens(item)
-            }
-            if isScene {
-                Divider()
-                Button("Scene Properties...") {
-                    viewModel.openSceneProperties(item)
-                }
             }
             if needsExtract {
                 Divider()
