@@ -14,12 +14,15 @@ struct GalleryView: View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: columnSpacing) {
                 ForEach(viewModel.filteredWallpapers) { item in
+                    let isDownloaded = viewModel.isRemoteWallpaperDownloaded(item)
                     WallpaperCard(
                         item: item,
                         isSelected: viewModel.selectedIDs.contains(item.id),
+                        isDownloaded: isDownloaded,
                         onTap: { viewModel.toggleSelection(item.id) }
                     )
                     .equatable()
+                    .id("\(item.id)-\(isDownloaded)")
                     .transition(.scale(scale: 0.9).combined(with: .opacity))
                 }
             }
@@ -34,6 +37,7 @@ struct GalleryView: View {
 struct WallpaperCard: View, Equatable {
     let item: WallpaperItem
     let isSelected: Bool
+    let isDownloaded: Bool
     let onTap: () -> Void
 
     static func == (lhs: WallpaperCard, rhs: WallpaperCard) -> Bool {
@@ -52,10 +56,11 @@ struct WallpaperCard: View, Equatable {
             && lhs.item.isDownloaded == rhs.item.isDownloaded
             && lhs.item.remoteThumbnailURL == rhs.item.remoteThumbnailURL
             && lhs.isSelected == rhs.isSelected
+            && lhs.isDownloaded == rhs.isDownloaded
     }
 
     var body: some View {
-        WallpaperCardInternal(item: item, isSelected: isSelected, onTap: onTap)
+        WallpaperCardInternal(item: item, isSelected: isSelected, isDownloaded: isDownloaded, onTap: onTap)
     }
 }
 
@@ -66,6 +71,7 @@ private struct WallpaperCardInternal: View {
 
     let item: WallpaperItem
     let isSelected: Bool
+    let isDownloaded: Bool
     let onTap: () -> Void
 
     @State private var isHovered = false
@@ -178,9 +184,9 @@ private struct WallpaperCardInternal: View {
         if item.isRemote || item.isExtracted || item.pkgPath != nil {
             HStack(spacing: 4) {
                 if item.isRemote {
-                    Image(systemName: item.isDownloaded ? "checkmark.icloud.fill" : "icloud.and.arrow.down")
+                    Image(systemName: isDownloaded ? "checkmark.icloud.fill" : "icloud.and.arrow.down")
                         .font(.caption)
-                        .foregroundStyle(item.isDownloaded ? .green : .blue)
+                        .foregroundStyle(isDownloaded ? .green : .blue)
                 }
                 if item.isExtracted {
                     Image(systemName: "checkmark.circle.fill")
@@ -227,7 +233,7 @@ private struct WallpaperCardInternal: View {
         let isScene = item.type.lowercased() == "scene"
         let needsExtract = item.pkgPath != nil
 
-        if item.isRemote && !item.isDownloaded {
+        if item.isRemote && !isDownloaded {
             Button("Download") {
                 viewModel.downloadRemoteWallpaper(item)
             }

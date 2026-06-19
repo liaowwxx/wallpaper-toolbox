@@ -2,6 +2,8 @@
 
 WallPaper Gallery is a macOS-native SwiftUI toolbox for local Wallpaper Engine libraries. It scans wallpaper folders, generates previews, extracts `.pkg` assets through RePKG, and can set image, video, and scene wallpapers.
 
+The macOS app also supports an optional remote mode for browsing a Windows-hosted Wallpaper Engine library. Remote wallpapers are downloaded as original source folders first, then handled by the same local image/video/scene wallpaper pipeline.
+
 The repository also contains early cross-platform demos:
 
 - `Apps/iOSDemo`: an iPhone/iPad client for browsing a remote Windows wallpaper library.
@@ -34,6 +36,8 @@ The app bundle is written to:
 ```text
 .build/WallPaper Gallery.app
 ```
+
+Open the generated app bundle when testing remote mode. The bundle Info.plist includes App Transport Security and local-network permissions needed for the Windows demo API.
 
 ## Wallpaper Support
 
@@ -128,7 +132,50 @@ The current remote workflow is API-server first:
 3. Set `API username` and `API password` to enable Basic Auth.
 4. Generate thumbnails and `library.json`.
 5. Start the API server.
-6. On iOS, enter the Streamlit-provided API URL plus the same username/password.
+6. On macOS or iOS, enter the Streamlit-provided API URL plus the same username/password.
+
+### macOS Remote Mode
+
+Open Settings -> General -> Library, then switch from `Local` to `Remote`.
+
+Remote mode settings:
+
+- `Server URL`: the Windows demo API URL, for example `http://192.168.1.20:8090`.
+- `Username` / `Password`: the Basic Auth credentials configured in the Windows control panel.
+- Remote download directory: where original wallpaper folders are stored on the Mac.
+- `Connect`: fetches the remote `library.json` and shows the remote library.
+
+The app remembers the last selected library mode. If the previous mode was `Remote`, the app automatically attempts to connect on launch. If remote mode is selected but not connected, the gallery stays empty instead of showing the previous local directory.
+
+Each remote wallpaper card is marked as downloaded or not downloaded:
+
+- Not downloaded: the context menu only contains `Download`.
+- Downloaded: the context menu is the same as local mode, including `Set as Wallpaper...`, `Set on All Screens...`, scene properties, extraction, Finder, and metadata actions.
+
+Downloads are shown with an in-app progress panel. macOS does not provide a generic native download HUD for custom app transfers, so the app uses a SwiftUI floating progress panel.
+
+### Remote Downloads
+
+Remote macOS downloads do not unpack on Windows. The Windows demo publishes a source archive URL for each wallpaper:
+
+```text
+/api/wallpapers/{item_id}/download
+```
+
+The endpoint zips the original wallpaper source folder and streams it to the Mac. After download, the app unzips that folder into the configured remote download directory and writes a small registry file:
+
+```text
+.wallpaper-remote-downloads.json
+```
+
+That registry maps remote item IDs to the downloaded local folder names, so downloaded status can be restored immediately and across app launches. Once downloaded, image, video, and scene wallpapers use the same local setting logic as normal local wallpapers. Scene wallpapers still use the normal scene pipeline: attempt RePKG extraction first, then offer `Render Scene Directly` plus extracted media assets.
+
+The Windows manifest includes:
+
+- `relativeDir`: the source folder's relative location in the Windows library.
+- `sourceArchive`: the API route used by the macOS app to download the original folder.
+- `thumbnail`: the published thumbnail URL.
+- `assets`: published media assets for clients that use the iOS-style streaming flow.
 
 For normal iOS use, leave `Public static base URL` blank. The iOS app loads thumbnails and media through the API `/files/...` endpoint. That endpoint only serves files already published in `library.json`, so unrelated files under the library root are not exposed.
 

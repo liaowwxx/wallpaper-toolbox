@@ -27,12 +27,13 @@ final class AppViewModel {
     var isRemoteConnecting = false
     var remoteConnectionStatus = ""
     var remoteDownloadProgress: RemoteDownloadProgress?
+    var remoteDownloadedIDs = Set<String>()
 
     /// Tracks whether the initial onAppear launch sequence has run.
     @ObservationIgnored var appDidLaunch = false
 
     /// Bumped whenever filters or search change, providing animation context for ForEach transitions.
-    @ObservationIgnored var filterGeneration = 0
+    var filterGeneration = 0
 
     var isExtracting = false
     var extractionOutput = ""
@@ -146,7 +147,7 @@ final class AppViewModel {
     private var debouncedSearchText = ""
 
     /// Generation counter bumped on every wallpaper mutation that affects filtering.
-    @ObservationIgnored private var _wallpaperGeneration: Int = 0
+    var wallpaperGeneration: Int = 0
 
     @ObservationIgnored private var _cachedFilters: (
         wallpaperGeneration: Int,
@@ -167,7 +168,7 @@ final class AppViewModel {
     @ObservationIgnored private var localSelectedDirectory: URL?
 
     var allCollections: [String] {
-        if let cache = _cachedCollections, cache.generation == _wallpaperGeneration {
+        if let cache = _cachedCollections, cache.generation == wallpaperGeneration {
             return cache.result
         }
         var set = Set<String>()
@@ -175,13 +176,13 @@ final class AppViewModel {
             for c in wp.collections { set.insert(c) }
         }
         let result = set.sorted()
-        _cachedCollections = (_wallpaperGeneration, result)
+        _cachedCollections = (wallpaperGeneration, result)
         return result
     }
 
     var filteredWallpapers: [WallpaperItem] {
         if let cache = _cachedFilters,
-           cache.wallpaperGeneration == _wallpaperGeneration,
+           cache.wallpaperGeneration == wallpaperGeneration,
            cache.searchText == debouncedSearchText,
            cache.typeFilter == typeFilter,
            cache.contentRatingFilter == contentRatingFilter,
@@ -205,7 +206,7 @@ final class AppViewModel {
         if let collection = collectionFilter {
             result = result.filter { $0.collections.contains(collection) }
         }
-        _cachedFilters = (_wallpaperGeneration, debouncedSearchText, typeFilter, contentRatingFilter, collectionFilter, result)
+        _cachedFilters = (wallpaperGeneration, debouncedSearchText, typeFilter, contentRatingFilter, collectionFilter, result)
         return result
     }
 
@@ -295,6 +296,7 @@ final class AppViewModel {
         remoteBaseURL = nil
         remoteConnectionStatus = ""
         remoteDownloadProgress = nil
+        remoteDownloadedIDs = []
         selectedIDs.removeAll()
         if let localSelectedDirectory {
             selectedDirectory = localSelectedDirectory
@@ -305,7 +307,7 @@ final class AppViewModel {
             Task { await scan(resetFilters: false) }
         } else {
             wallpapers = []
-            _wallpaperGeneration += 1
+            wallpaperGeneration += 1
         }
     }
 
@@ -317,10 +319,11 @@ final class AppViewModel {
         remoteManifest = nil
         remoteBaseURL = nil
         remoteDownloadProgress = nil
+        remoteDownloadedIDs = []
         selectedIDs.removeAll()
         selectedDirectory = settings?.remoteDownloadDirectory
         wallpapers = []
-        _wallpaperGeneration += 1
+        wallpaperGeneration += 1
         remoteConnectionStatus = "Remote mode selected"
         statusText = "Remote mode selected. Connect to load the Windows library."
     }
@@ -349,8 +352,9 @@ final class AppViewModel {
         statusText = "Connecting to remote library..."
         remoteConnectionStatus = "Connecting..."
         wallpapers = []
+        remoteDownloadedIDs = []
         selectedIDs.removeAll()
-        _wallpaperGeneration += 1
+        wallpaperGeneration += 1
         if selectedDirectory != settings.remoteDownloadDirectory {
             localSelectedDirectory = selectedDirectory
         }
@@ -389,7 +393,7 @@ final class AppViewModel {
             } else {
                 wallpapers = []
                 selectedIDs.removeAll()
-                _wallpaperGeneration += 1
+                wallpaperGeneration += 1
                 statusText = "Remote mode selected. Connect to load the Windows library."
             }
             return
@@ -409,7 +413,7 @@ final class AppViewModel {
         if !resetFilters {
             selectedIDs.formIntersection(Set(items.map(\.id)))
         }
-        _wallpaperGeneration += 1
+        wallpaperGeneration += 1
         isScanning = false
         statusText = "\(items.count) wallpapers found"
 
@@ -441,38 +445,28 @@ final class AppViewModel {
         }
 
         wallpapers = manifest.items.map { record in
-            let folderName = registeredOrExpectedFolderName(for: record, registry: downloadRegistry)
             let inferredItem = inferDownloadedItem(for: record, localItems: localItems)
-            var item = localByFolder[folderName] ?? localByID[record.id] ?? inferredItem ?? WallpaperItem(
-                directory: root.appendingPathComponent(folderName, isDirectory: true),
-                project: nil,
-                preview: nil,
-                pkg: nil
+            let item = remoteWallpaperItem(
+                for: record,
+                root: root,
+                registry: downloadRegistry,
+                scannedFolderItem: localByFolder[registeredOrExpectedFolderName(for: record, registry: downloadRegistry)],
+                scannedIDItem: localByID[record.id],
+                inferredItem: inferredItem
             )
-            item.id = "remote-\(record.id)"
-            item.title = record.title
-            item.type = record.type
-            item.contentRating = record.contentRating
-            item.collections = record.collections
-            item.tags = record.tags
-            item.metadataKey = record.id
-            item.remoteID = record.id
-            item.remoteRelativeDir = record.relativeDir
-            item.remoteArchiveURL = record.sourceArchiveURL(relativeTo: remoteBaseURL)
-            item.remoteThumbnailURL = record.thumbnailURL(relativeTo: remoteBaseURL)
-            item.isRemote = true
-            item.isDownloaded = FileManager.default.fileExists(atPath: item.path.path)
             if item.isDownloaded, downloadRegistry[record.id] == nil {
                 downloadRegistry[record.id] = item.path.lastPathComponent
             }
             return item
         }
         saveRemoteDownloadRegistry(downloadRegistry, root: root)
+        syncRemoteDownloadedIDs(from: wallpapers)
 
         if !resetFilters {
             selectedIDs.formIntersection(Set(wallpapers.map(\.id)))
         }
-        _wallpaperGeneration += 1
+        wallpaperGeneration += 1
+        filterGeneration &+= 1
         isScanning = false
         statusText = "\(wallpapers.count) remote wallpapers loaded"
     }
@@ -482,7 +476,7 @@ final class AppViewModel {
     }
 
     private func downloadRemoteWallpaperAsync(_ item: WallpaperItem) async {
-        guard item.isRemote, !item.isDownloaded else { return }
+        guard item.isRemote, !isRemoteWallpaperDownloaded(item) else { return }
         guard let settings,
               let remoteID = item.remoteID,
               let manifest = remoteManifest,
@@ -522,14 +516,19 @@ final class AppViewModel {
                     detail: "\(Int((value * 100).rounded()))%"
                 )
             }
-            let archiveTopLevelFolders = try await topLevelDirectoryNames(in: archive)
+            let archiveLayout = try await inspectArchiveLayout(in: archive)
             remoteDownloadProgress = RemoteDownloadProgress(id: progressID, title: item.title, progress: 1, detail: "Installing")
-            try await unzipArchive(archive, to: settings.remoteDownloadDirectory)
-            let downloadedFolderName = resolveDownloadedFolderName(
+            let installPlan = makeRemoteInstallPlan(
                 for: record,
-                archiveTopLevelFolders: archiveTopLevelFolders,
+                archiveLayout: archiveLayout,
                 root: settings.remoteDownloadDirectory
             )
+            try FileManager.default.createDirectory(
+                at: installPlan.destination,
+                withIntermediateDirectories: true
+            )
+            try await unzipArchive(archive, to: installPlan.destination)
+            let downloadedFolderName = installPlan.folderName
             var registry = loadRemoteDownloadRegistry(root: settings.remoteDownloadDirectory)
             registry[record.id] = downloadedFolderName
             saveRemoteDownloadRegistry(registry, root: settings.remoteDownloadDirectory)
@@ -562,15 +561,44 @@ final class AppViewModel {
         return matchingItems.count == 1 ? matchingItems[0] : nil
     }
 
-    private func markRemoteWallpaperDownloaded(record: RemoteWallpaperRecord, folderName: String, root: URL) {
-        guard let index = wallpapers.firstIndex(where: { $0.remoteID == record.id }) else { return }
+    private func remoteWallpaperItem(
+        for record: RemoteWallpaperRecord,
+        root: URL,
+        registry: [String: String],
+        scannedFolderItem: WallpaperItem?,
+        scannedIDItem: WallpaperItem?,
+        inferredItem: WallpaperItem?
+    ) -> WallpaperItem {
+        let folderName = registeredOrExpectedFolderName(for: record, registry: registry)
         let folderURL = root.appendingPathComponent(folderName, isDirectory: true)
+        let downloadedFolderItem = itemForDownloadedRemoteFolder(
+            record: record,
+            folderURL: folderURL
+        )
+        var item = downloadedFolderItem
+            ?? scannedFolderItem
+            ?? scannedIDItem
+            ?? inferredItem
+            ?? WallpaperItem(directory: folderURL, project: nil, preview: nil, pkg: nil)
+        applyRemoteMetadata(to: &item, record: record)
+        item.isDownloaded = isExistingDirectory(item.path)
+        return item
+    }
+
+    private func itemForDownloadedRemoteFolder(record: RemoteWallpaperRecord, folderURL: URL) -> WallpaperItem? {
+        guard isExistingDirectory(folderURL) else { return nil }
         var item = WallpaperItem(
             directory: folderURL,
             project: metadataService.readProjectJSON(in: folderURL),
             preview: findPreview(in: folderURL),
             pkg: findPKG(in: folderURL)
         )
+        applyRemoteMetadata(to: &item, record: record)
+        item.isDownloaded = true
+        return item
+    }
+
+    private func applyRemoteMetadata(to item: inout WallpaperItem, record: RemoteWallpaperRecord) {
         item.id = "remote-\(record.id)"
         item.title = record.title
         item.type = record.type
@@ -583,10 +611,53 @@ final class AppViewModel {
         item.remoteArchiveURL = record.sourceArchiveURL(relativeTo: remoteBaseURL)
         item.remoteThumbnailURL = record.thumbnailURL(relativeTo: remoteBaseURL)
         item.isRemote = true
+    }
+
+    private func isExistingDirectory(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            && isDirectory.boolValue
+    }
+
+    private func markRemoteWallpaperDownloaded(record: RemoteWallpaperRecord, folderName: String, root: URL) {
+        guard let index = wallpapers.firstIndex(where: { $0.remoteID == record.id }) else { return }
+        let folderURL = root.appendingPathComponent(folderName, isDirectory: true)
+        var item = itemForDownloadedRemoteFolder(record: record, folderURL: folderURL)
+            ?? WallpaperItem(directory: folderURL, project: nil, preview: nil, pkg: nil)
+        applyRemoteMetadata(to: &item, record: record)
         item.isDownloaded = true
-        wallpapers[index] = item
+        var updatedWallpapers = wallpapers
+        updatedWallpapers[index] = item
+        wallpapers = updatedWallpapers
+        setRemoteDownloaded(true, remoteID: record.id)
         selectedIDs.remove(item.id)
-        _wallpaperGeneration += 1
+        wallpaperGeneration += 1
+        filterGeneration &+= 1
+    }
+
+    func isRemoteWallpaperDownloaded(_ item: WallpaperItem) -> Bool {
+        guard item.isRemote, let remoteID = item.remoteID else {
+            return item.isDownloaded
+        }
+        return item.isDownloaded || remoteDownloadedIDs.contains(remoteID)
+    }
+
+    private func setRemoteDownloaded(_ isDownloaded: Bool, remoteID: String?) {
+        guard let remoteID else { return }
+        var updatedIDs = remoteDownloadedIDs
+        if isDownloaded {
+            updatedIDs.insert(remoteID)
+        } else {
+            updatedIDs.remove(remoteID)
+        }
+        remoteDownloadedIDs = updatedIDs
+        filterGeneration &+= 1
+    }
+
+    private func syncRemoteDownloadedIDs(from items: [WallpaperItem]) {
+        remoteDownloadedIDs = Set(items.compactMap { item in
+            item.isRemote && item.isDownloaded ? item.remoteID : nil
+        })
     }
 
     private func findPreview(in directory: URL) -> URL? {
@@ -637,25 +708,26 @@ final class AppViewModel {
         try? data.write(to: url, options: .atomic)
     }
 
-    private func resolveDownloadedFolderName(
-        for record: RemoteWallpaperRecord,
-        archiveTopLevelFolders: [String],
-        root: URL
-    ) -> String {
-        let fm = FileManager.default
-        for folder in archiveTopLevelFolders {
-            if fm.fileExists(atPath: root.appendingPathComponent(folder, isDirectory: true).path) {
-                return folder
-            }
-        }
-        let expected = remoteFolderName(for: record)
-        if fm.fileExists(atPath: root.appendingPathComponent(expected, isDirectory: true).path) {
-            return expected
-        }
-        return archiveTopLevelFolders.first ?? expected
+    private struct RemoteArchiveLayout {
+        let topLevelDirectories: [String]
+        let hasRootFiles: Bool
     }
 
-    private func topLevelDirectoryNames(in archive: URL) async throws -> [String] {
+    private func makeRemoteInstallPlan(
+        for record: RemoteWallpaperRecord,
+        archiveLayout: RemoteArchiveLayout,
+        root: URL
+    ) -> (folderName: String, destination: URL) {
+        if !archiveLayout.hasRootFiles, archiveLayout.topLevelDirectories.count == 1,
+           let folderName = archiveLayout.topLevelDirectories.first {
+            return (folderName, root)
+        }
+
+        let expected = remoteFolderName(for: record)
+        return (expected, root.appendingPathComponent(expected, isDirectory: true))
+    }
+
+    private func inspectArchiveLayout(in archive: URL) async throws -> RemoteArchiveLayout {
         try await Task.detached {
             let process = Process()
             let pipe = Pipe()
@@ -670,16 +742,28 @@ final class AppViewModel {
             }
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             let output = String(data: data, encoding: .utf8) ?? ""
-            let folders = output
-                .split(whereSeparator: \.isNewline)
-                .compactMap { line -> String? in
-                    guard let first = line.split(separator: "/", omittingEmptySubsequences: true).first else {
-                        return nil
+            var topLevelDirectories = Set<String>()
+            var hasRootFiles = false
+
+            for line in output.split(whereSeparator: \.isNewline) {
+                let components = line.split(separator: "/", omittingEmptySubsequences: true)
+                guard let first = components.first else { continue }
+                let topLevelName = String(first)
+                guard topLevelName != "__MACOSX" else { continue }
+
+                if components.count == 1 {
+                    if !topLevelName.hasSuffix("/") {
+                        hasRootFiles = true
                     }
-                    let folder = String(first)
-                    return folder == "__MACOSX" ? nil : folder
+                } else {
+                    topLevelDirectories.insert(topLevelName)
                 }
-            return Array(Set(folders)).sorted()
+            }
+
+            return RemoteArchiveLayout(
+                topLevelDirectories: topLevelDirectories.sorted(),
+                hasRootFiles: hasRootFiles
+            )
         }.value
     }
 
@@ -766,7 +850,7 @@ final class AppViewModel {
     func setContentRating(_ item: WallpaperItem, rating: String) {
         guard let idx = wallpapers.firstIndex(where: { $0.id == item.id }) else { return }
         wallpapers[idx].contentRating = rating
-        _wallpaperGeneration += 1
+        wallpaperGeneration += 1
         metadataService.saveMetadata(for: wallpapers[idx], mode: scanMode, flatRoot: selectedDirectory)
         statusText = "Content rating updated"
     }
@@ -777,7 +861,7 @@ final class AppViewModel {
         guard let idx = wallpapers.firstIndex(where: { $0.id == item.id }) else { return }
         if !wallpapers[idx].collections.contains(collection) {
             wallpapers[idx].collections.append(collection)
-            _wallpaperGeneration += 1
+            wallpaperGeneration += 1
             metadataService.saveMetadata(for: wallpapers[idx], mode: scanMode, flatRoot: selectedDirectory)
             statusText = "Added to '\(collection)'"
         }
@@ -786,7 +870,7 @@ final class AppViewModel {
     func removeFromCollection(_ item: WallpaperItem, collection: String) {
         guard let idx = wallpapers.firstIndex(where: { $0.id == item.id }) else { return }
         wallpapers[idx].collections.removeAll { $0 == collection }
-        _wallpaperGeneration += 1
+        wallpaperGeneration += 1
         metadataService.saveMetadata(for: wallpapers[idx], mode: scanMode, flatRoot: selectedDirectory)
         statusText = "Removed from '\(collection)'"
     }
@@ -802,7 +886,7 @@ final class AppViewModel {
                 }
             }
         }
-        _wallpaperGeneration += 1
+        wallpaperGeneration += 1
         for item in wallpapers where selectedIDs.contains(item.id) {
             metadataService.saveMetadata(for: item, mode: scanMode, flatRoot: selectedDirectory)
         }
@@ -822,7 +906,7 @@ final class AppViewModel {
                 affected.append(wallpapers[idx])
             }
         }
-        if !affected.isEmpty { _wallpaperGeneration += 1 }
+        if !affected.isEmpty { wallpaperGeneration += 1 }
         for item in affected {
             metadataService.saveMetadata(for: item, mode: scanMode, flatRoot: selectedDirectory)
         }
@@ -840,7 +924,7 @@ final class AppViewModel {
                 affected.append(wallpapers[idx])
             }
         }
-        if !affected.isEmpty { _wallpaperGeneration += 1 }
+        if !affected.isEmpty { wallpaperGeneration += 1 }
         for item in affected {
             metadataService.saveMetadata(for: item, mode: scanMode, flatRoot: selectedDirectory)
         }
@@ -858,7 +942,7 @@ final class AppViewModel {
                 affected.append(wallpapers[idx])
             }
         }
-        if !affected.isEmpty { _wallpaperGeneration += 1 }
+        if !affected.isEmpty { wallpaperGeneration += 1 }
         for item in affected {
             metadataService.saveMetadata(for: item, mode: scanMode, flatRoot: selectedDirectory)
         }
@@ -871,12 +955,13 @@ final class AppViewModel {
         do {
             try FileManager.default.removeItem(at: item.path)
             if item.isRemote {
+                setRemoteDownloaded(false, remoteID: item.remoteID)
                 selectedIDs.remove(item.id)
                 Task { await refreshRemoteWallpapers() }
             } else {
                 wallpapers.removeAll { $0.id == item.id }
                 selectedIDs.remove(item.id)
-                _wallpaperGeneration += 1
+                wallpaperGeneration += 1
             }
 
             if scanMode == .flat, let root = selectedDirectory {
@@ -894,9 +979,14 @@ final class AppViewModel {
     func batchDeleteWallpapers() {
         let toDelete = wallpapers.filter { selectedIDs.contains($0.id) }
         var failed = 0
+        var deletedRemoteItem = false
         for item in toDelete {
             do {
                 try FileManager.default.removeItem(at: item.path)
+                if item.isRemote {
+                    deletedRemoteItem = true
+                    setRemoteDownloaded(false, remoteID: item.remoteID)
+                }
                 wallpapers.removeAll { $0.id == item.id }
                 selectedIDs.remove(item.id)
             } catch {
@@ -912,7 +1002,10 @@ final class AppViewModel {
             metadataService.writeFlatMeta(meta, root: root)
         }
         let deleted = toDelete.count - failed
-        if deleted > 0 { _wallpaperGeneration += 1 }
+        if deleted > 0 { wallpaperGeneration += 1 }
+        if deletedRemoteItem {
+            Task { await refreshRemoteWallpapers() }
+        }
         statusText = failed > 0
             ? "Deleted \(deleted) wallpapers (\(failed) failed)"
             : "Deleted \(deleted) wallpapers"
@@ -1200,7 +1293,7 @@ final class AppViewModel {
     }
 
     func setAsWallpaper(_ item: WallpaperItem) {
-        if item.isRemote, !item.isDownloaded {
+        if item.isRemote, !isRemoteWallpaperDownloaded(item) {
             downloadRemoteWallpaper(item)
             return
         }
@@ -1212,7 +1305,7 @@ final class AppViewModel {
     }
 
     func setAsWallpaperForAllScreens(_ item: WallpaperItem) {
-        if item.isRemote, !item.isDownloaded {
+        if item.isRemote, !isRemoteWallpaperDownloaded(item) {
             downloadRemoteWallpaper(item)
             return
         }

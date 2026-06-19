@@ -27,11 +27,13 @@ struct SettingsView: View {
 private struct GeneralTab: View {
     @Environment(AppViewModel.self) private var viewModel
     @Environment(SettingsStore.self) private var settings
+    @State private var selectedLibraryMode: LibraryMode = .local
 
     private var libraryModeBinding: Binding<LibraryMode> {
         Binding(
-            get: { settings.libraryMode },
+            get: { selectedLibraryMode },
             set: { mode in
+                selectedLibraryMode = mode
                 settings.libraryMode = mode
                 if mode == .local {
                     viewModel.switchToLocalLibrary()
@@ -59,7 +61,7 @@ private struct GeneralTab: View {
                 }
                 .pickerStyle(.segmented)
 
-                if settings.libraryMode == .remote {
+                if selectedLibraryMode == .remote {
                     TextField("Server URL", text: Binding(
                         get: { settings.remoteServerURL },
                         set: { settings.remoteServerURL = $0 }
@@ -129,6 +131,9 @@ private struct GeneralTab: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear {
+            selectedLibraryMode = settings.libraryMode
+        }
     }
 }
 
