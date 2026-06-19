@@ -65,6 +65,40 @@ if [ -f "$WALLPAPER_PLAYER" ]; then
     info "WallpaperPlayer bundled"
 fi
 
+# copy wallpaper-wgpu scene renderer if available
+WALLPAPER_WGPU="${RESOURCES_DIR}/bin/wallpaper-wgpu"
+if [ -f "$WALLPAPER_WGPU" ]; then
+    cp "$WALLPAPER_WGPU" "${APP_DIR}/Contents/Resources/wallpaper-wgpu"
+    chmod 755 "${APP_DIR}/Contents/Resources/wallpaper-wgpu"
+    info "wallpaper-wgpu bundled"
+fi
+
+WALLPAPER_WGPU_ASSETS="${RESOURCES_DIR}/assets"
+if [ -d "$WALLPAPER_WGPU_ASSETS" ]; then
+    cp -R "$WALLPAPER_WGPU_ASSETS" "${APP_DIR}/Contents/Resources/assets"
+    info "wallpaper-wgpu assets bundled"
+fi
+
+DXC_BIN="${RESOURCES_DIR}/dxc"
+DXC_LIB="${RESOURCES_DIR}/lib/libdxcompiler.dylib"
+if [ ! -f "$DXC_BIN" ]; then
+    DXC_BIN="${RESOURCES_DIR}/bin/dxc"
+fi
+if [ ! -f "$DXC_LIB" ]; then
+    DXC_LIB="${RESOURCES_DIR}/bin/lib/libdxcompiler.dylib"
+fi
+if [ -f "$DXC_BIN" ]; then
+    cp "$DXC_BIN" "${APP_DIR}/Contents/Resources/dxc"
+    chmod 755 "${APP_DIR}/Contents/Resources/dxc"
+    info "dxc bundled"
+fi
+if [ -f "$DXC_LIB" ]; then
+    mkdir -p "${APP_DIR}/Contents/Resources/lib"
+    cp "$DXC_LIB" "${APP_DIR}/Contents/Resources/lib/libdxcompiler.dylib"
+    chmod 755 "${APP_DIR}/Contents/Resources/lib/libdxcompiler.dylib"
+    info "libdxcompiler bundled"
+fi
+
 if [ -f "$APP_ICON" ]; then
     cp "$APP_ICON" "${APP_DIR}/Contents/Resources/AppIcon.icns"
     info "App icon bundled"
@@ -139,7 +173,7 @@ step "Code signing with certificate: ${CERT_NAME}"
 # verify certificate exists
 if security find-identity -v -p codesigning | grep -q "${CERT_NAME}"; then
     # sign bundled binaries first (dylibs, helper tools)
-    find "${APP_DIR}/Contents/Resources" -type f \( -name "*.dylib" -o -name "RePKG" -o -name "WallpaperPlayer" \) | while read -r file; do
+    find "${APP_DIR}/Contents/Resources" -type f \( -name "*.dylib" -o -name "RePKG" -o -name "WallpaperPlayer" -o -name "wallpaper-wgpu" -o -name "dxc" \) | while read -r file; do
         codesign --force --sign "${CERT_NAME}" --timestamp "${file}" 2>/dev/null || true
     done
 

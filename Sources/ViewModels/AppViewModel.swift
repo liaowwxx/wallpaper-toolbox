@@ -44,6 +44,7 @@ final class AppViewModel {
     private let scanner = WallpaperScanner()
     private let repkgService = RePKGService()
     private let wallpaperService = WallpaperService()
+    private let sceneRendererService = SceneWallpaperRendererService()
     private let metadataService = MetadataService.shared
 
     private var wallpaperCacheRoot: URL {
@@ -624,6 +625,28 @@ final class AppViewModel {
             statusText = "Preparing wallpaper: \(item.title)..."
             wallpaperStatus = "Preparing..."
 
+            if item.type.lowercased() == "scene" {
+                do {
+                    WallpaperService.killVideoWallpaper()
+                    try sceneRendererService.setSceneWallpaper(
+                        projectURL: item.path,
+                        allScreens: allScreens,
+                        isMuted: wallpaperMuted
+                    )
+                    saveLastSceneWallpaper(item.path, isMuted: wallpaperMuted, allScreens: allScreens)
+                    wallpaperStatus = ""
+                    wallpaperTargetItem = nil
+                    statusText = allScreens
+                        ? "Scene wallpaper rendering on all screens: \(item.title)"
+                        : "Scene wallpaper rendering: \(item.title)"
+                } catch {
+                    wallpaperStatus = ""
+                    wallpaperTargetItem = nil
+                    statusText = "Scene render failed: \(error.localizedDescription)"
+                }
+                return
+            }
+
             let scanDir: URL
 
             if let pkg = item.pkgPath {
@@ -673,6 +696,7 @@ final class AppViewModel {
         showWallpaperPicker = false
 
         do {
+            sceneRendererService.stop()
             WallpaperService.killVideoWallpaper()
             if wallpaperForAllScreens {
                 if asset.isVideo {
@@ -727,6 +751,7 @@ final class AppViewModel {
 
     private func setFlatWallpaper(url: URL, allScreens: Bool) {
         do {
+            sceneRendererService.stop()
             WallpaperService.killVideoWallpaper()
             if allScreens {
                 try wallpaperService.setWallpaper(filePath: url, isMuted: wallpaperMuted, allScreens: true)
@@ -746,6 +771,7 @@ final class AppViewModel {
 
     func applyStaticWallpaper(_ fileURL: URL, assetName: String) {
         do {
+            sceneRendererService.stop()
             try wallpaperService.setImageWallpaper(filePath: fileURL)
             saveLastWallpaper(fileURL, isMuted: false)
             statusText = "Frame set: \(assetName)"
@@ -831,9 +857,16 @@ final class AppViewModel {
         let url = URL(fileURLWithPath: path)
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         do {
-            WallpaperService.killVideoWallpaper()
             let isMuted = UserDefaults.standard.bool(forKey: UserDefaultsKey.lastWallpaperMuted)
-            try wallpaperService.setWallpaper(filePath: url, isMuted: isMuted)
+            if UserDefaults.standard.string(forKey: UserDefaultsKey.lastWallpaperKind) == "scene" {
+                WallpaperService.killVideoWallpaper()
+                let allScreens = UserDefaults.standard.bool(forKey: UserDefaultsKey.lastWallpaperAllScreens)
+                try sceneRendererService.setSceneWallpaper(projectURL: url, allScreens: allScreens, isMuted: isMuted)
+            } else {
+                sceneRendererService.stop()
+                WallpaperService.killVideoWallpaper()
+                try wallpaperService.setWallpaper(filePath: url, isMuted: isMuted)
+            }
         } catch {
             statusText = "Restore wallpaper failed"
         }
@@ -842,6 +875,15 @@ final class AppViewModel {
     private func saveLastWallpaper(_ url: URL, isMuted: Bool) {
         UserDefaults.standard.set(url.path, forKey: UserDefaultsKey.lastWallpaper)
         UserDefaults.standard.set(isMuted, forKey: UserDefaultsKey.lastWallpaperMuted)
+        UserDefaults.standard.set("media", forKey: UserDefaultsKey.lastWallpaperKind)
+        UserDefaults.standard.removeObject(forKey: UserDefaultsKey.lastWallpaperAllScreens)
+    }
+
+    private func saveLastSceneWallpaper(_ url: URL, isMuted: Bool, allScreens: Bool) {
+        UserDefaults.standard.set(url.path, forKey: UserDefaultsKey.lastWallpaper)
+        UserDefaults.standard.set(isMuted, forKey: UserDefaultsKey.lastWallpaperMuted)
+        UserDefaults.standard.set("scene", forKey: UserDefaultsKey.lastWallpaperKind)
+        UserDefaults.standard.set(allScreens, forKey: UserDefaultsKey.lastWallpaperAllScreens)
     }
 
     func saveState() {

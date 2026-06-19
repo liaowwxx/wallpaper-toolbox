@@ -69,4 +69,7 @@ enum UserDefaultsKey {
     static let appSettings = "com.wallpaper.gallery.settings"
     static let lastWallpaper = "com.wallpaper.gallery.settings.lastWallpaper"
     static let lastWallpaperMuted = "com.wallpaper.gallery.settings.lastWallpaperMuted"
+    static let lastWallpaperKind = "com.wallpaper.gallery.settings.lastWallpaperKind"
+    static let lastWallpaperAllScreens = "com.wallpaper.gallery.settings.lastWallpaperAllScreens"
+    static let sceneRendererPIDs = "com.wallpaper.gallery.sceneRendererPIDs"
 }
