@@ -627,31 +627,9 @@ final class AppViewModel {
             statusText = "Preparing wallpaper: \(item.title)..."
             wallpaperStatus = "Preparing..."
 
-            if item.type.lowercased() == "scene" {
-                do {
-                    WallpaperService.killVideoWallpaper()
-                    let userProperties = SceneWallpaperPropertiesService.propertiesOverrideJSON(for: item.path)
-                    try sceneRendererService.setSceneWallpaper(
-                        projectURL: item.path,
-                        allScreens: allScreens,
-                        isMuted: wallpaperMuted,
-                        userProperties: userProperties
-                    )
-                    saveLastSceneWallpaper(item.path, isMuted: wallpaperMuted, allScreens: allScreens)
-                    wallpaperStatus = ""
-                    wallpaperTargetItem = nil
-                    statusText = allScreens
-                        ? "Scene wallpaper rendering on all screens: \(item.title)"
-                        : "Scene wallpaper rendering: \(item.title)"
-                } catch {
-                    wallpaperStatus = ""
-                    wallpaperTargetItem = nil
-                    statusText = "Scene render failed: \(error.localizedDescription)"
-                }
-                return
-            }
-
+            let isScene = item.type.lowercased() == "scene"
             let scanDir: URL
+            var sceneExtractionWarning: String?
 
             if let pkg = item.pkgPath {
                 wallpaperStatus = "Extracting package..."
@@ -667,12 +645,17 @@ final class AppViewModel {
                 )
                 do {
                     _ = try await repkgService.runAndWait(arguments: args)
+                    scanDir = cacheDir
                 } catch {
-                    statusText = "Wallpaper extraction failed: \(error.localizedDescription)"
-                    wallpaperStatus = ""
-                    return
+                    if isScene {
+                        sceneExtractionWarning = error.localizedDescription
+                        scanDir = Self.sceneFallbackScanDirectory(for: item, cacheDir: cacheDir)
+                    } else {
+                        statusText = "Wallpaper extraction failed: \(error.localizedDescription)"
+                        wallpaperStatus = ""
+                        return
+                    }
                 }
-                scanDir = cacheDir
             } else if item.isExtracted {
                 scanDir = item.path.appendingPathComponent("extracted")
             } else {
@@ -684,14 +667,61 @@ final class AppViewModel {
             wallpaperAssets = assets
             wallpaperStatus = ""
 
-            if assets.isEmpty {
+            if assets.isEmpty && !isScene {
                 statusText = "No media files found in extracted output"
                 return
             }
 
             showWallpaperPicker = true
-            statusText = "\(assets.count) assets found — select one"
+            if isScene {
+                if let sceneExtractionWarning {
+                    statusText = "Scene extraction skipped: \(sceneExtractionWarning)"
+                } else {
+                    statusText = assets.isEmpty
+                        ? "Scene ready — render directly or choose an extracted file"
+                        : "\(assets.count) assets found — render scene directly or select one"
+                }
+            } else {
+                statusText = "\(assets.count) assets found — select one"
+            }
         }
+    }
+
+    private static func sceneFallbackScanDirectory(for item: WallpaperItem, cacheDir: URL) -> URL {
+        let fm = FileManager.default
+        let extractedDir = item.path.appendingPathComponent("extracted")
+        let candidates = [cacheDir, extractedDir, item.path].filter { candidate in
+            var isDirectory: ObjCBool = false
+            return fm.fileExists(atPath: candidate.path, isDirectory: &isDirectory) && isDirectory.boolValue
+        }
+        if let directoryWithAssets = candidates.first(where: { !AssetScanner.scan($0).isEmpty }) {
+            return directoryWithAssets
+        }
+        return candidates.last ?? item.path
+    }
+
+    func finishSceneDirectSelection(_ item: WallpaperItem) {
+        guard item.type.lowercased() == "scene" else { return }
+
+        showWallpaperPicker = false
+        do {
+            WallpaperService.killVideoWallpaper()
+            let userProperties = SceneWallpaperPropertiesService.propertiesOverrideJSON(for: item.path)
+            try sceneRendererService.setSceneWallpaper(
+                projectURL: item.path,
+                allScreens: wallpaperForAllScreens,
+                isMuted: wallpaperMuted,
+                userProperties: userProperties
+            )
+            saveLastSceneWallpaper(item.path, isMuted: wallpaperMuted, allScreens: wallpaperForAllScreens)
+            statusText = wallpaperForAllScreens
+                ? "Scene wallpaper rendering on all screens: \(item.title)"
+                : "Scene wallpaper rendering: \(item.title)"
+        } catch {
+            statusText = "Scene render failed: \(error.localizedDescription)"
+        }
+
+        wallpaperTargetItem = nil
     }
 
     func finishWallpaperSelection(_ asset: AssetFile) {
@@ -717,13 +747,17 @@ final class AppViewModel {
                 }
                 statusText = "Wallpaper set on all screens: \(asset.name)\(wallpaperMuted ? " (muted)" : "")"
             } else {
-                try wallpaperService.setWallpaper(filePath: asset.url, isMuted: wallpaperMuted)
-                if asset.isVideo, autoReplaceStaticWithFirstFrame {
-                    Task {
-                        if let frameURL = await WallpaperService.captureFirstFrame(videoURL: asset.url) {
-                            try? wallpaperService.setImageWallpaper(filePath: frameURL)
+                if asset.isVideo {
+                    try wallpaperService.setWallpaper(filePath: asset.url, isMuted: wallpaperMuted)
+                    if autoReplaceStaticWithFirstFrame {
+                        Task {
+                            if let frameURL = await WallpaperService.captureFirstFrame(videoURL: asset.url) {
+                                try? wallpaperService.setImageWallpaper(filePath: frameURL)
+                            }
                         }
                     }
+                } else {
+                    try wallpaperService.setImageWallpaper(filePath: asset.url)
                 }
                 let kind = asset.isVideo ? " (video\(wallpaperMuted ? ", muted" : ""))" : ""
                 statusText = "Wallpaper set: \(asset.name)\(kind)"

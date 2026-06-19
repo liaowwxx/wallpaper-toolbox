@@ -194,7 +194,7 @@ private struct WallpaperCardInternal: View {
     @ViewBuilder
     private var contextMenuContent: some View {
         let isScene = item.type.lowercased() == "scene"
-        let needsExtract = item.pkgPath != nil && !isScene
+        let needsExtract = item.pkgPath != nil
 
         Button(needsExtract ? "Set as Wallpaper..." : "Set as Wallpaper") {
             viewModel.setAsWallpaper(item)

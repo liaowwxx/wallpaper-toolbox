@@ -52,6 +52,7 @@ final class WallpaperService {
             resourceURL?.appendingPathComponent("WallpaperPlayer"),
             resourceURL?.appendingPathComponent("bin/WallpaperPlayer"),
             execDirURL?.appendingPathComponent("WallpaperPlayer"),
+            PathResolver.resolve("resources/bin/WallpaperPlayer"),
             PathResolver.resolve("../resources/bin/WallpaperPlayer"),
         ]
 

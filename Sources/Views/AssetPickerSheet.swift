@@ -65,6 +65,9 @@ struct AssetPickerSheet: View {
     @State private var playerState = VideoPlayerStateHolder()
 
     private let videoSize = CGSize(width: 260, height: 146)
+    private var isSceneItem: Bool {
+        item.type.lowercased() == "scene"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -83,6 +86,11 @@ struct AssetPickerSheet: View {
             .padding()
 
             Divider()
+
+            if isSceneItem {
+                directSceneOption
+                Divider()
+            }
 
             if assets.isEmpty {
                 Spacer()
@@ -126,6 +134,41 @@ struct AssetPickerSheet: View {
         .onDisappear {
             playerState.clear()
         }
+    }
+
+    private var directSceneOption: some View {
+        Button {
+            viewModel.finishSceneDirectSelection(item)
+            dismiss()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "cube.transparent")
+                    .font(.title2)
+                    .foregroundStyle(.tint)
+                    .frame(width: 46, height: 46)
+                    .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Render Scene Directly")
+                        .font(.body.weight(.semibold))
+                    Text("Use wallpaper-wgpu to render this scene as a live wallpaper.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Image(systemName: "arrow.right.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.tint)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Render scene directly")
+        .accessibilityHint("Set this scene wallpaper through the realtime renderer")
     }
 
     // MARK: - Image Asset

@@ -54,8 +54,9 @@ _repkg_meta.json
 # Generated icon intermediates
 *.iconset/
 
-# Bundled external binaries (RePKG CLI + .NET runtime, WallpaperPlayer).
-# Scene rendering assets are tracked below because wallpaper-wgpu needs them.
-resources/osx-arm64/
+# Bundled helper binaries/runtime used by wallpaper setup.
+!resources/osx-arm64/
+!resources/osx-arm64/**
 resources/bin/*
+!resources/bin/WallpaperPlayer
 !resources/bin/wallpaper-wgpu
