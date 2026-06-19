@@ -139,6 +139,13 @@ cat > "${APP_DIR}/Contents/Info.plist" << PLIST
 	<string>14.0</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Connect to your Windows wallpaper library on the local network.</string>
 	<key>NSSupportsAutomaticTermination</key>
 	<true/>
 	<key>NSRequiresAquaSystemAppearance</key>

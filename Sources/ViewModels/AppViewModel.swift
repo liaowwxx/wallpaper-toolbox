@@ -398,6 +398,7 @@ final class AppViewModel {
         }
 
         let localItems = await scanner.scan(directory: root, mode: .subdir)
+        var downloadRegistry = loadRemoteDownloadRegistry(root: root)
         let localByFolder = localItems.reduce(into: [String: WallpaperItem]()) { result, item in
             result[item.path.lastPathComponent] = item
         }
@@ -406,8 +407,9 @@ final class AppViewModel {
         }
 
         wallpapers = manifest.items.map { record in
-            let folderName = remoteFolderName(for: record)
-            var item = localByFolder[folderName] ?? localByID[record.id] ?? WallpaperItem(
+            let folderName = registeredOrExpectedFolderName(for: record, registry: downloadRegistry)
+            let inferredItem = inferDownloadedItem(for: record, localItems: localItems)
+            var item = localByFolder[folderName] ?? localByID[record.id] ?? inferredItem ?? WallpaperItem(
                 directory: root.appendingPathComponent(folderName, isDirectory: true),
                 project: nil,
                 preview: nil,
@@ -426,8 +428,12 @@ final class AppViewModel {
             item.remoteThumbnailURL = record.thumbnailURL(relativeTo: remoteBaseURL)
             item.isRemote = true
             item.isDownloaded = FileManager.default.fileExists(atPath: item.path.path)
+            if item.isDownloaded, downloadRegistry[record.id] == nil {
+                downloadRegistry[record.id] = item.path.lastPathComponent
+            }
             return item
         }
+        saveRemoteDownloadRegistry(downloadRegistry, root: root)
 
         if !resetFilters {
             selectedIDs.formIntersection(Set(wallpapers.map(\.id)))
@@ -482,8 +488,17 @@ final class AppViewModel {
                     detail: "\(Int((value * 100).rounded()))%"
                 )
             }
+            let archiveTopLevelFolders = try await topLevelDirectoryNames(in: archive)
             remoteDownloadProgress = RemoteDownloadProgress(id: progressID, title: item.title, progress: 1, detail: "Installing")
             try await unzipArchive(archive, to: settings.remoteDownloadDirectory)
+            let downloadedFolderName = resolveDownloadedFolderName(
+                for: record,
+                archiveTopLevelFolders: archiveTopLevelFolders,
+                root: settings.remoteDownloadDirectory
+            )
+            var registry = loadRemoteDownloadRegistry(root: settings.remoteDownloadDirectory)
+            registry[record.id] = downloadedFolderName
+            saveRemoteDownloadRegistry(registry, root: settings.remoteDownloadDirectory)
             try? FileManager.default.removeItem(at: archive)
             remoteDownloadProgress = nil
             await refreshRemoteWallpapers()
@@ -492,6 +507,20 @@ final class AppViewModel {
             remoteDownloadProgress = nil
             statusText = "Download failed: \(error.localizedDescription)"
         }
+    }
+
+    private func registeredOrExpectedFolderName(for record: RemoteWallpaperRecord, registry: [String: String]) -> String {
+        if let registered = registry[record.id], !registered.isEmpty {
+            return registered
+        }
+        return remoteFolderName(for: record)
+    }
+
+    private func inferDownloadedItem(for record: RemoteWallpaperRecord, localItems: [WallpaperItem]) -> WallpaperItem? {
+        let matchingItems = localItems.filter {
+            $0.title == record.title && $0.type.lowercased() == record.type.lowercased()
+        }
+        return matchingItems.count == 1 ? matchingItems[0] : nil
     }
 
     private func remoteFolderName(for record: RemoteWallpaperRecord) -> String {
@@ -507,6 +536,68 @@ final class AppViewModel {
             return trimmed
         }
         return "http://\(trimmed)"
+    }
+
+    private func remoteDownloadRegistryURL(root: URL) -> URL {
+        root.appendingPathComponent(".wallpaper-remote-downloads.json")
+    }
+
+    private func loadRemoteDownloadRegistry(root: URL) -> [String: String] {
+        let url = remoteDownloadRegistryURL(root: root)
+        guard let data = try? Data(contentsOf: url) else { return [:] }
+        return (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
+    }
+
+    private func saveRemoteDownloadRegistry(_ registry: [String: String], root: URL) {
+        let url = remoteDownloadRegistryURL(root: root)
+        guard let data = try? JSONEncoder().encode(registry) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+
+    private func resolveDownloadedFolderName(
+        for record: RemoteWallpaperRecord,
+        archiveTopLevelFolders: [String],
+        root: URL
+    ) -> String {
+        let fm = FileManager.default
+        for folder in archiveTopLevelFolders {
+            if fm.fileExists(atPath: root.appendingPathComponent(folder, isDirectory: true).path) {
+                return folder
+            }
+        }
+        let expected = remoteFolderName(for: record)
+        if fm.fileExists(atPath: root.appendingPathComponent(expected, isDirectory: true).path) {
+            return expected
+        }
+        return archiveTopLevelFolders.first ?? expected
+    }
+
+    private func topLevelDirectoryNames(in archive: URL) async throws -> [String] {
+        try await Task.detached {
+            let process = Process()
+            let pipe = Pipe()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+            process.arguments = ["-Z1", archive.path]
+            process.standardOutput = pipe
+            process.standardError = Pipe()
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else {
+                throw RemoteLibraryError.downloadFailed("Unable to inspect downloaded wallpaper archive.")
+            }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8) ?? ""
+            let folders = output
+                .split(whereSeparator: \.isNewline)
+                .compactMap { line -> String? in
+                    guard let first = line.split(separator: "/", omittingEmptySubsequences: true).first else {
+                        return nil
+                    }
+                    let folder = String(first)
+                    return folder == "__MACOSX" ? nil : folder
+                }
+            return Array(Set(folders)).sorted()
+        }.value
     }
 
     private func unzipArchive(_ archive: URL, to destination: URL) async throws {
