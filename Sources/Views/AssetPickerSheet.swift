@@ -179,18 +179,11 @@ struct AssetPickerSheet: View {
             dismiss()
         } label: {
             HStack(spacing: 12) {
-                AsyncImage(url: asset.url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image.resizable().aspectRatio(contentMode: .fill)
-                    default:
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(Color.blue.opacity(0.12))
-                            Image(systemName: "photo").foregroundStyle(.blue)
-                        }
-                    }
-                }
+                AuthenticatedThumbnailView(
+                    url: asset.url,
+                    authorizationHeader: viewModel.remoteAuthorizationHeader,
+                    fallbackIcon: "photo"
+                )
                 .frame(width: 96, height: 64)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
 

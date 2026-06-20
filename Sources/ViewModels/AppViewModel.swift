@@ -81,6 +81,14 @@ final class AppViewModel {
         set { settings?.autoReplaceStaticWithFirstFrame = newValue }
     }
 
+    var remoteAuthorizationHeader: String? {
+        guard let settings else { return nil }
+        return RemoteLibraryClient.authorizationHeader(
+            username: settings.remoteUsername,
+            password: settings.remotePassword
+        )
+    }
+
     var outputDirectory: URL? {
         get { settings?.outputDirectory ?? nil }
         set { settings?.outputDirectory = newValue }

@@ -123,3 +123,122 @@ struct ThumbnailView: View {
 
     // squareCrop → CGImage.squareCroppedAndResized(to:) in CGImage+Thumbnail.swift
 }
+
+struct AuthenticatedThumbnailView: View {
+    let url: URL
+    let authorizationHeader: String?
+    let fallbackIcon: String
+
+    @State private var image: NSImage?
+    @State private var didFail = false
+
+    var body: some View {
+        Group {
+            if let nsImage = image {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                ZStack {
+                    Rectangle().fill(.quaternary)
+                    Image(systemName: fallbackIcon)
+                        .font(.largeTitle)
+                        .foregroundStyle(.secondary)
+                    if !didFail {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                }
+            }
+        }
+        .task(id: LoadIdentity(url: url, authorizationHeader: authorizationHeader), priority: .background) {
+            await load()
+        }
+    }
+
+    private struct LoadIdentity: Hashable {
+        let url: URL
+        let authorizationHeader: String?
+    }
+
+    private func load() async {
+        if url.isFileURL {
+            if let cached = ThumbnailCache.shared.image(for: url) {
+                image = cached
+                didFail = false
+                return
+            }
+
+            image = nil
+            didFail = false
+            guard let thumbnail = Self.thumbnail(fromFileURL: url) else {
+                didFail = true
+                return
+            }
+            ThumbnailCache.shared.setImage(thumbnail, for: url)
+            guard !Task.isCancelled else { return }
+            image = thumbnail
+            return
+        }
+
+        if let cached = ThumbnailCache.shared.image(for: url) {
+            image = cached
+            didFail = false
+            return
+        }
+
+        image = nil
+        didFail = false
+
+        do {
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.setValue("image/*", forHTTPHeaderField: "Accept")
+            if let authorizationHeader {
+                request.setValue(authorizationHeader, forHTTPHeaderField: "Authorization")
+            }
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                didFail = true
+                return
+            }
+            guard let thumbnail = Self.thumbnail(fromImageData: data) else {
+                didFail = true
+                return
+            }
+            ThumbnailCache.shared.setImage(thumbnail, for: url)
+            guard !Task.isCancelled else { return }
+            image = thumbnail
+        } catch {
+            guard !Task.isCancelled else { return }
+            didFail = true
+        }
+    }
+
+    private static func thumbnail(fromFileURL url: URL) -> NSImage? {
+        let options = thumbnailOptions
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
+              let squared = cgImage.squareCroppedAndResized(to: AppConstants.thumbnailSize) else { return nil }
+        return NSImage(cgImage: squared, size: .zero)
+    }
+
+    private static func thumbnail(fromImageData data: Data) -> NSImage? {
+        let options = thumbnailOptions
+        if let source = CGImageSourceCreateWithData(data as CFData, nil),
+           let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
+           let squared = cgImage.squareCroppedAndResized(to: AppConstants.thumbnailSize) {
+            return NSImage(cgImage: squared, size: .zero)
+        }
+        return NSImage(data: data)
+    }
+
+    private static var thumbnailOptions: [CFString: Any] {
+        [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: 512,
+            kCGImageSourceCreateThumbnailWithTransform: true
+        ]
+    }
+}

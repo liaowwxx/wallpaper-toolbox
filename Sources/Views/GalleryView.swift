@@ -11,6 +11,8 @@ struct GalleryView: View {
     }
 
     var body: some View {
+        let remoteAuthorizationHeader = viewModel.remoteAuthorizationHeader
+
         ScrollView {
             LazyVGrid(columns: columns, spacing: columnSpacing) {
                 ForEach(viewModel.filteredWallpapers) { item in
@@ -19,6 +21,7 @@ struct GalleryView: View {
                         item: item,
                         isSelected: viewModel.selectedIDs.contains(item.id),
                         isDownloaded: isDownloaded,
+                        remoteAuthorizationHeader: remoteAuthorizationHeader,
                         onTap: { viewModel.toggleSelection(item.id) }
                     )
                     .equatable()
@@ -38,6 +41,7 @@ struct WallpaperCard: View, Equatable {
     let item: WallpaperItem
     let isSelected: Bool
     let isDownloaded: Bool
+    let remoteAuthorizationHeader: String?
     let onTap: () -> Void
 
     static func == (lhs: WallpaperCard, rhs: WallpaperCard) -> Bool {
@@ -57,10 +61,17 @@ struct WallpaperCard: View, Equatable {
             && lhs.item.remoteThumbnailURL == rhs.item.remoteThumbnailURL
             && lhs.isSelected == rhs.isSelected
             && lhs.isDownloaded == rhs.isDownloaded
+            && lhs.remoteAuthorizationHeader == rhs.remoteAuthorizationHeader
     }
 
     var body: some View {
-        WallpaperCardInternal(item: item, isSelected: isSelected, isDownloaded: isDownloaded, onTap: onTap)
+        WallpaperCardInternal(
+            item: item,
+            isSelected: isSelected,
+            isDownloaded: isDownloaded,
+            remoteAuthorizationHeader: remoteAuthorizationHeader,
+            onTap: onTap
+        )
     }
 }
 
@@ -72,6 +83,7 @@ private struct WallpaperCardInternal: View {
     let item: WallpaperItem
     let isSelected: Bool
     let isDownloaded: Bool
+    let remoteAuthorizationHeader: String?
     let onTap: () -> Void
 
     @State private var isHovered = false
@@ -123,21 +135,11 @@ private struct WallpaperCardInternal: View {
             } else if let previewPath = item.previewPath {
                 ThumbnailView(url: previewPath, version: item.thumbnailVersion, fallbackIcon: item.typeIcon)
             } else if item.isRemote, let thumbnailURL = item.remoteThumbnailURL {
-                AsyncImage(url: thumbnailURL) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image.resizable().scaledToFill()
-                    case .failure:
-                        remotePlaceholder
-                    case .empty:
-                        ZStack {
-                            remotePlaceholder
-                            ProgressView().scaleEffect(0.7)
-                        }
-                    @unknown default:
-                        remotePlaceholder
-                    }
-                }
+                AuthenticatedThumbnailView(
+                    url: thumbnailURL,
+                    authorizationHeader: remoteAuthorizationHeader,
+                    fallbackIcon: item.typeIcon
+                )
             } else {
                 remotePlaceholder
             }
