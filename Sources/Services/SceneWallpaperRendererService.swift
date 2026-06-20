@@ -159,10 +159,17 @@ final class SceneWallpaperRendererService {
             args += ["--upscaling", "\(Self.upscalingPercent())"]
         }
         if isMuted {
-            args.append("--muted")
+            args += ["--volume", "0"]
         }
         if let userProperties, !userProperties.isEmpty {
             args += ["--user-properties", userProperties]
+        }
+
+        let logURL = try Self.createRendererLogFile(screenID: Self.screenIdentifier(for: screen))
+        let logFile = try FileHandle(forWritingTo: logURL)
+        let launchHeader = "=== wallpaper-wgpu \(Date()) ===\n\(executableURL.path) \(args.joined(separator: " "))\n\n"
+        if let data = launchHeader.data(using: .utf8) {
+            try? logFile.write(contentsOf: data)
         }
 
         let process = Process()
@@ -170,10 +177,22 @@ final class SceneWallpaperRendererService {
         process.currentDirectoryURL = executableURL.deletingLastPathComponent()
         process.arguments = args
         process.environment = Self.launchEnvironment(for: executableURL)
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
+        process.standardOutput = logFile
+        process.standardError = logFile
         try process.run()
         return process
+    }
+
+    private static func createRendererLogFile(screenID: String) throws -> URL {
+        let safeID = screenID.map { character -> Character in
+            character.isLetter || character.isNumber || character == "-" || character == "_" ? character : "_"
+        }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WallpaperToolboxRendererLogs", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent("wallpaper-wgpu-\(String(safeID))-\(UUID().uuidString).log")
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        return url
     }
 
     private static func resolveSceneInput(from projectURL: URL) throws -> URL {
@@ -187,13 +206,13 @@ final class SceneWallpaperRendererService {
             return projectURL
         }
 
-        if fm.fileExists(atPath: projectURL.appendingPathComponent("project.json").path) {
-            return projectURL
-        }
-
         if let pkgURL = try? fm.contentsOfDirectory(at: projectURL, includingPropertiesForKeys: nil)
             .first(where: { $0.pathExtension.lowercased() == "pkg" }) {
             return pkgURL
+        }
+
+        if fm.fileExists(atPath: projectURL.appendingPathComponent("project.json").path) {
+            return projectURL
         }
 
         throw SceneWallpaperRendererError.sceneNotFound
@@ -255,6 +274,7 @@ final class SceneWallpaperRendererService {
             executableDirectory.appendingPathComponent("bin").path,
             existingPath
         ].filter { !$0.isEmpty }.joined(separator: ":")
+        environment["RUST_LOG"] = "info"
         return environment
     }
 
