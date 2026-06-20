@@ -46,6 +46,7 @@ enum UserDefaultsKey {
     static let remoteUsername = "remoteUsername"
     static let remotePassword = "remotePassword"
     static let remoteDownloadDirectoryPath = "remoteDownloadDirectoryPath"
+    static let appLanguage = "appLanguage"
 
     // Wallpaper
     static let wallpaperMuted = "wallpaperMuted"

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct GalleryView: View {
     @Environment(AppViewModel.self) private var viewModel
+    @Environment(SettingsStore.self) private var settings
 
     private let columnSpacing: CGFloat = 10
     private let cardMinWidth: CGFloat = 160
@@ -21,6 +22,7 @@ struct GalleryView: View {
                         item: item,
                         isSelected: viewModel.selectedIDs.contains(item.id),
                         isDownloaded: isDownloaded,
+                        appLanguage: settings.appLanguage,
                         remoteAuthorizationHeader: remoteAuthorizationHeader,
                         onTap: { viewModel.toggleSelection(item.id) }
                     )
@@ -41,6 +43,7 @@ struct WallpaperCard: View, Equatable {
     let item: WallpaperItem
     let isSelected: Bool
     let isDownloaded: Bool
+    let appLanguage: AppLanguage
     let remoteAuthorizationHeader: String?
     let onTap: () -> Void
 
@@ -61,6 +64,7 @@ struct WallpaperCard: View, Equatable {
             && lhs.item.remoteThumbnailURL == rhs.item.remoteThumbnailURL
             && lhs.isSelected == rhs.isSelected
             && lhs.isDownloaded == rhs.isDownloaded
+            && lhs.appLanguage == rhs.appLanguage
             && lhs.remoteAuthorizationHeader == rhs.remoteAuthorizationHeader
     }
 
@@ -69,6 +73,7 @@ struct WallpaperCard: View, Equatable {
             item: item,
             isSelected: isSelected,
             isDownloaded: isDownloaded,
+            appLanguage: appLanguage,
             remoteAuthorizationHeader: remoteAuthorizationHeader,
             onTap: onTap
         )
@@ -83,6 +88,7 @@ private struct WallpaperCardInternal: View {
     let item: WallpaperItem
     let isSelected: Bool
     let isDownloaded: Bool
+    let appLanguage: AppLanguage
     let remoteAuthorizationHeader: String?
     let onTap: () -> Void
 
@@ -114,18 +120,18 @@ private struct WallpaperCardInternal: View {
             isHovered = hovering
         }
         .contextMenu { contextMenuContent }
-        .confirmationDialog("Delete Wallpaper?", isPresented: $isConfirmingDelete) {
-            Button("Delete", role: .destructive) {
+        .confirmationDialog(L10n.t("Delete Wallpaper?", appLanguage), isPresented: $isConfirmingDelete) {
+            Button(L10n.t("Delete", appLanguage), role: .destructive) {
                 viewModel.deleteWallpaper(item)
             }
-            Button("Cancel", role: .cancel) { }
+            Button(L10n.t("Cancel", appLanguage), role: .cancel) { }
         } message: {
-            Text("This removes the wallpaper from disk.")
+            Text(L10n.t("This removes the wallpaper from disk.", appLanguage))
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(item.title), \(item.typeLabel)")
+        .accessibilityLabel("\(item.title), \(L10n.wallpaperType(item.type, appLanguage))")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityHint(isSelected ? "Press to deselect" : "Press to select")
+        .accessibilityHint(isSelected ? L10n.t("Press to deselect", appLanguage) : L10n.t("Press to select", appLanguage))
     }
 
     private var thumbnailArea: some View {
@@ -173,7 +179,7 @@ private struct WallpaperCardInternal: View {
     }
 
     private var typeBadge: some View {
-        Text(item.typeLabel)
+        Text(L10n.wallpaperType(item.type, appLanguage))
             .font(.caption2).fontWeight(.semibold)
             .foregroundStyle(.white)
             .padding(.horizontal, 6).padding(.vertical, 3)
@@ -235,19 +241,19 @@ private struct WallpaperCardInternal: View {
         let needsExtract = item.pkgPath != nil
 
         if item.isRemote && !isDownloaded {
-            Button("Download") {
+            Button(L10n.t("Download", appLanguage)) {
                 viewModel.downloadRemoteWallpaper(item)
             }
         } else {
-            Button(needsExtract ? "Set as Wallpaper..." : "Set as Wallpaper") {
+            Button(L10n.t(needsExtract ? "Set as Wallpaper..." : "Set as Wallpaper", appLanguage)) {
                 viewModel.setAsWallpaper(item)
             }
-            Button(needsExtract ? "Set on All Screens..." : "Set on All Screens") {
+            Button(L10n.t(needsExtract ? "Set on All Screens..." : "Set on All Screens", appLanguage)) {
                 viewModel.setAsWallpaperForAllScreens(item)
             }
             if needsExtract {
                 Divider()
-                Button("Extract to Disk...") {
+                Button(L10n.t("Extract to Disk...", appLanguage)) {
                     viewModel.selectedIDs = [item.id]
                     viewModel.showExtractSheet = true
                 }
@@ -255,9 +261,9 @@ private struct WallpaperCardInternal: View {
 
             Divider()
 
-            Menu("Change Rating") {
+            Menu(L10n.t("Change Rating", appLanguage)) {
                 ForEach(["Everyone", "Questionable", "Mature"], id: \.self) { rating in
-                    Button(rating) {
+                    Button(L10n.contentRating(rating, appLanguage)) {
                         viewModel.setContentRating(item, rating: rating)
                     }
                     if item.contentRating == rating {
@@ -266,7 +272,7 @@ private struct WallpaperCardInternal: View {
                 }
             }
 
-            Menu("Add to Collection") {
+            Menu(L10n.t("Add to Collection", appLanguage)) {
                 ForEach(viewModel.allCollections, id: \.self) { collection in
                     Button(collection) {
                         viewModel.addToCollection(item, collection: collection)
@@ -275,14 +281,14 @@ private struct WallpaperCardInternal: View {
                 if !viewModel.allCollections.isEmpty {
                     Divider()
                 }
-                Button("New Collection...") {
+                Button(L10n.t("New Collection...", appLanguage)) {
                     viewModel.selectedIDs = [item.id]
                     viewModel.showNewCollectionSheet = true
                 }
             }
 
             if !item.collections.isEmpty {
-                Menu("Remove from Collection") {
+                Menu(L10n.t("Remove from Collection", appLanguage)) {
                     ForEach(item.collections, id: \.self) { collection in
                         Button(collection) {
                             viewModel.removeFromCollection(item, collection: collection)
@@ -292,10 +298,10 @@ private struct WallpaperCardInternal: View {
             }
 
             Divider()
-            Button("Show in Finder") { viewModel.openInFinder(item) }
+            Button(L10n.t("Show in Finder", appLanguage)) { viewModel.openInFinder(item) }
 
             Divider()
-            Button("Delete") {
+            Button(L10n.t("Delete", appLanguage)) {
                 isConfirmingDelete = true
             }
         }

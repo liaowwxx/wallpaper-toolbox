@@ -5,15 +5,17 @@ import SwiftUI
 /// Uses the shared SettingsStore injected via environment so
 /// changes here are reflected immediately in the main window.
 struct SettingsView: View {
+    @Environment(SettingsStore.self) private var settings
+
     var body: some View {
         TabView {
-            Tab("Library", systemImage: "books.vertical") {
+            Tab(L10n.t("Library", settings.appLanguage), systemImage: "books.vertical") {
                 GeneralTab()
             }
-            Tab("Wallpaper", systemImage: "display") {
+            Tab(L10n.t("Wallpaper", settings.appLanguage), systemImage: "display") {
                 WallpaperTab()
             }
-            Tab("Extraction", systemImage: "shippingbox") {
+            Tab(L10n.t("Extraction", settings.appLanguage), systemImage: "shippingbox") {
                 AdvancedTab()
             }
         }
@@ -62,9 +64,23 @@ private struct GeneralTab: View {
     var body: some View {
         Form {
             Section {
-                Picker("Library Mode", selection: libraryModeBinding) {
+                Picker(L10n.t("Language", settings.appLanguage), selection: Binding(
+                    get: { settings.appLanguage },
+                    set: { settings.appLanguage = $0 }
+                )) {
+                    ForEach(AppLanguage.allCases) { language in
+                        Text(language.displayName(in: settings.appLanguage)).tag(language)
+                    }
+                }
+                .pickerStyle(.segmented)
+            } header: {
+                Text(L10n.t("Language", settings.appLanguage))
+            }
+
+            Section {
+                Picker(L10n.t("Library Mode", settings.appLanguage), selection: libraryModeBinding) {
                     ForEach(LibraryMode.allCases, id: \.self) { mode in
-                        Text(mode.label).tag(mode)
+                        Text(L10n.t(mode.label, settings.appLanguage)).tag(mode)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -75,47 +91,47 @@ private struct GeneralTab: View {
                     remoteLibraryControls
                 }
             } header: {
-                Text("Library")
+                Text(L10n.t("Library", settings.appLanguage))
             } footer: {
-                Text("Local mode scans a folder on this Mac. Remote mode downloads original wallpaper folders before using the same local pipeline.")
+                Text(L10n.t("Local mode scans a folder on this Mac. Remote mode downloads original wallpaper folders before using the same local pipeline.", settings.appLanguage))
             }
 
             Section {
-                Picker("Default Scan Mode", selection: scanModeBinding) {
+                Picker(L10n.t("Default Scan Mode", settings.appLanguage), selection: scanModeBinding) {
                     ForEach(ScanMode.allCases, id: \.self) { mode in
-                        Text(mode.label).tag(mode)
+                        Text(L10n.t(mode.label, settings.appLanguage)).tag(mode)
                     }
                 }
             } header: {
-                Text("Scanning")
+                Text(L10n.t("Scanning", settings.appLanguage))
             }
 
             Section {
                 directoryRow(
-                    title: "Output",
+                    title: L10n.t("Output", settings.appLanguage),
                     path: viewModel.outputDirectory?.path,
-                    emptyTitle: "No output directory selected"
+                    emptyTitle: L10n.t("No output directory selected", settings.appLanguage)
                 ) {
                     viewModel.selectOutputDirectory()
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("RePKG Binary")
+                    Text(L10n.t("RePKG Binary", settings.appLanguage))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    TextField("Default bundled RePKG", text: $repkgPath)
+                    TextField(L10n.t("Default bundled RePKG", settings.appLanguage), text: $repkgPath)
                         .textFieldStyle(.roundedBorder)
                     HStack {
                         Button {
                             browseRePKGBinary()
                         } label: {
-                            Label("Browse", systemImage: "folder")
+                            Label(L10n.t("Browse", settings.appLanguage), systemImage: "folder")
                         }
                         Button {
                             repkgPath = ""
                             unsetenv("REPKG_PATH")
                         } label: {
-                            Label("Use Bundled", systemImage: "arrow.uturn.backward")
+                            Label(L10n.t("Use Bundled", settings.appLanguage), systemImage: "arrow.uturn.backward")
                         }
                         .disabled(repkgPath.isEmpty)
                     }
@@ -128,27 +144,27 @@ private struct GeneralTab: View {
                     }
                 }
             } header: {
-                Text("Directories")
+                Text(L10n.t("Directories", settings.appLanguage))
             } footer: {
-                Text("The bundled RePKG binary is used when no override path is set.")
+                Text(L10n.t("The bundled RePKG binary is used when no override path is set.", settings.appLanguage))
             }
 
             Section {
                 HStack {
-                    Text("\(viewModel.wallpapers.count) wallpapers")
+                    Text(L10n.itemCount(viewModel.wallpapers.count, "%d wallpaper", "%d wallpapers", settings.appLanguage))
                     Spacer()
                     if !viewModel.statusText.isEmpty {
-                        Text(viewModel.statusText)
+                        Text(L10n.t(viewModel.statusText, settings.appLanguage))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
                 }
                 if !viewModel.selectedIDs.isEmpty {
-                    Text("\(viewModel.selectedIDs.count) selected")
+                    Text(String(format: L10n.t("%d selected", settings.appLanguage), viewModel.selectedIDs.count))
                         .foregroundStyle(.secondary)
                 }
             } header: {
-                Text("Status")
+                Text(L10n.t("Status", settings.appLanguage))
             }
 
             Section {
@@ -156,14 +172,14 @@ private struct GeneralTab: View {
                     Button {
                         viewModel.selectAll()
                     } label: {
-                        Label("Select All", systemImage: "checkmark.rectangle")
+                        Label(L10n.t("Select All", settings.appLanguage), systemImage: "checkmark.rectangle")
                     }
                     .disabled(viewModel.wallpapers.isEmpty)
 
                     Button {
                         viewModel.deselectAll()
                     } label: {
-                        Label("Deselect", systemImage: "xmark.rectangle")
+                        Label(L10n.t("Deselect", settings.appLanguage), systemImage: "xmark.rectangle")
                     }
                     .disabled(viewModel.selectedIDs.isEmpty)
 
@@ -172,12 +188,12 @@ private struct GeneralTab: View {
                     Button {
                         viewModel.showExtractSheet = true
                     } label: {
-                        Label("Extract Selected", systemImage: "shippingbox")
+                        Label(L10n.t("Extract Selected", settings.appLanguage), systemImage: "shippingbox")
                     }
                     .disabled(viewModel.selectedIDs.isEmpty)
                 }
             } header: {
-                Text("Actions")
+                Text(L10n.t("Actions", settings.appLanguage))
             }
         }
         .formStyle(.grouped)
@@ -192,7 +208,7 @@ private struct GeneralTab: View {
             Button {
                 viewModel.selectDirectory()
             } label: {
-                Label("Open Folder", systemImage: "folder")
+                Label(L10n.t("Open Folder", settings.appLanguage), systemImage: "folder")
             }
 
             if let dir = viewModel.selectedDirectory {
@@ -204,7 +220,7 @@ private struct GeneralTab: View {
                     Button {
                         Task { await viewModel.scan() }
                     } label: {
-                        Label("Refresh", systemImage: "arrow.clockwise")
+                        Label(L10n.t("Refresh", settings.appLanguage), systemImage: "arrow.clockwise")
                     }
                     .disabled(viewModel.isScanning)
                 }
@@ -214,22 +230,22 @@ private struct GeneralTab: View {
 
     private var remoteLibraryControls: some View {
         VStack(alignment: .leading, spacing: 10) {
-            TextField("Server URL", text: Binding(
+            TextField(L10n.t("Server URL", settings.appLanguage), text: Binding(
                 get: { settings.remoteServerURL },
                 set: { settings.remoteServerURL = $0 }
             ))
-            TextField("Username", text: Binding(
+            TextField(L10n.t("Username", settings.appLanguage), text: Binding(
                 get: { settings.remoteUsername },
                 set: { settings.remoteUsername = $0 }
             ))
-            SecureField("Password", text: Binding(
+            SecureField(L10n.t("Password", settings.appLanguage), text: Binding(
                 get: { settings.remotePassword },
                 set: { settings.remotePassword = $0 }
             ))
             directoryRow(
-                title: "Download Folder",
+                title: L10n.t("Download Folder", settings.appLanguage),
                 path: settings.remoteDownloadDirectory.path,
-                emptyTitle: "No download folder selected"
+                emptyTitle: L10n.t("No download folder selected", settings.appLanguage)
             ) {
                 viewModel.selectRemoteDownloadDirectory()
             }
@@ -240,11 +256,11 @@ private struct GeneralTab: View {
                 Button {
                     Task { await viewModel.connectRemoteLibrary() }
                 } label: {
-                    Label("Connect", systemImage: "network")
+                    Label(L10n.t("Connect", settings.appLanguage), systemImage: "network")
                 }
                 .disabled(viewModel.isRemoteConnecting)
                 if !viewModel.remoteConnectionStatus.isEmpty {
-                    Text(viewModel.remoteConnectionStatus)
+                    Text(L10n.t(viewModel.remoteConnectionStatus, settings.appLanguage))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -269,7 +285,7 @@ private struct GeneralTab: View {
                     .truncationMode(.middle)
             }
             Spacer()
-            Button("Change...", action: action)
+            Button(L10n.t("Change...", settings.appLanguage), action: action)
         }
     }
 
@@ -292,7 +308,7 @@ private struct GeneralTab: View {
             panel.canChooseFiles = true
             panel.canChooseDirectories = false
             panel.allowsMultipleSelection = false
-            panel.message = "Select RePKG binary"
+            panel.message = L10n.t("Select RePKG binary", settings.appLanguage)
             if await panel.begin() == .OK, let url = panel.url {
                 repkgPath = url.path
             }
@@ -317,32 +333,32 @@ private struct WallpaperTab: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Restore wallpaper on launch", isOn: Binding(
+                Toggle(L10n.t("Restore wallpaper on launch", settings.appLanguage), isOn: Binding(
                     get: { settings.restoreLastWallpaper },
                     set: { settings.restoreLastWallpaper = $0 }
                 ))
 
-                Toggle("Mute video wallpaper", isOn: Binding(
+                Toggle(L10n.t("Mute video wallpaper", settings.appLanguage), isOn: Binding(
                     get: { settings.wallpaperMuted },
                     set: { settings.wallpaperMuted = $0 }
                 ))
 
-                Toggle("Auto-replace static wallpaper with first frame", isOn: Binding(
+                Toggle(L10n.t("Auto-replace static wallpaper with first frame", settings.appLanguage), isOn: Binding(
                     get: { settings.autoReplaceStaticWithFirstFrame },
                     set: { settings.autoReplaceStaticWithFirstFrame = $0 }
                 ))
             } header: {
-                Text("Playback")
+                Text(L10n.t("Playback", settings.appLanguage))
             } footer: {
-                Text("Restore reapplies the last wallpaper on launch. Static replacement captures the first video frame as a fallback for spaces and login screen.")
+                Text(L10n.t("Restore reapplies the last wallpaper on launch. Static replacement captures the first video frame as a fallback for spaces and login screen.", settings.appLanguage))
             }
 
             Section {
-                Toggle("MetalFX upscaling for scene wallpapers", isOn: $sceneUpscalingEnabled)
+                Toggle(L10n.t("MetalFX upscaling for scene wallpapers", settings.appLanguage), isOn: $sceneUpscalingEnabled)
 
                 if sceneUpscalingEnabled {
                     sceneSliderRow(
-                        title: "Render scale",
+                        title: L10n.t("Render scale", settings.appLanguage),
                         valueText: "\(Int(sceneUpscalingPercent))%",
                         value: $sceneUpscalingPercent,
                         range: 30...100,
@@ -351,7 +367,7 @@ private struct WallpaperTab: View {
                 }
 
                 sceneSliderRow(
-                    title: "Scene FPS limit",
+                    title: L10n.t("Scene FPS limit", settings.appLanguage),
                     valueText: "\(Int(sceneFPSCap)) FPS",
                     value: $sceneFPSCap,
                     range: 30...max(60, maxSceneFPS),
@@ -363,14 +379,14 @@ private struct WallpaperTab: View {
                     Button {
                         saveAndReapplySceneRenderingSettings()
                     } label: {
-                        Label("Save & Reapply", systemImage: "arrow.clockwise")
+                        Label(L10n.t("Save & Reapply", settings.appLanguage), systemImage: "arrow.clockwise")
                     }
                     .keyboardShortcut("s", modifiers: [.command])
                 }
             } header: {
-                Text("Scene Rendering")
+                Text(L10n.t("Scene Rendering", settings.appLanguage))
             } footer: {
-                Text("Scene wallpapers use the lower of this FPS limit and the display refresh rate. MetalFX renders at a lower internal resolution, then upscales to reduce GPU load.")
+                Text(L10n.t("Scene wallpapers use the lower of this FPS limit and the display refresh rate. MetalFX renders at a lower internal resolution, then upscales to reduce GPU load.", settings.appLanguage))
             }
         }
         .formStyle(.grouped)
@@ -434,58 +450,58 @@ private struct AdvancedTab: View {
                     get: { settings.ignoreExtensions },
                     set: { settings.ignoreExtensions = $0 }
                 ))
-                    .accessibilityLabel("Ignore extensions")
+                    .accessibilityLabel(L10n.t("Ignore extensions", settings.appLanguage))
 
                 TextField("e.g. .png,.jpg", text: Binding(
                     get: { settings.onlyExtensions },
                     set: { settings.onlyExtensions = $0 }
                 ))
-                    .accessibilityLabel("Only extensions")
+                    .accessibilityLabel(L10n.t("Only extensions", settings.appLanguage))
             } header: {
-                Text("Extraction Filters")
+                Text(L10n.t("Extraction Filters", settings.appLanguage))
             } footer: {
-                Text("Extensions to ignore (-i) or include (-e) when extracting packages.")
+                Text(L10n.t("Extensions to ignore (-i) or include (-e) when extracting packages.", settings.appLanguage))
             }
 
             Section {
-                Toggle("Convert TEX files (-t)", isOn: Binding(
+                Toggle(L10n.t("Convert TEX files (-t)", settings.appLanguage), isOn: Binding(
                     get: { settings.convertTEX },
                     set: { settings.convertTEX = $0 }
                 ))
-                Toggle("No TEX conversion", isOn: Binding(
+                Toggle(L10n.t("No TEX conversion", settings.appLanguage), isOn: Binding(
                     get: { settings.noTEXConvert },
                     set: { settings.noTEXConvert = $0 }
                 ))
-                Toggle("Single directory (-s)", isOn: Binding(
+                Toggle(L10n.t("Single directory (-s)", settings.appLanguage), isOn: Binding(
                     get: { settings.singleDir },
                     set: { settings.singleDir = $0 }
                 ))
-                Toggle("Recursive (-r)", isOn: Binding(
+                Toggle(L10n.t("Recursive (-r)", settings.appLanguage), isOn: Binding(
                     get: { settings.recursive },
                     set: { settings.recursive = $0 }
                 ))
-                Toggle("Copy project.json (-c)", isOn: Binding(
+                Toggle(L10n.t("Copy project.json (-c)", settings.appLanguage), isOn: Binding(
                     get: { settings.copyProject },
                     set: { settings.copyProject = $0 }
                 ))
-                Toggle("Use name (-n)", isOn: Binding(
+                Toggle(L10n.t("Use name (-n)", settings.appLanguage), isOn: Binding(
                     get: { settings.useName },
                     set: { settings.useName = $0 }
                 ))
-                Toggle("Overwrite existing", isOn: Binding(
+                Toggle(L10n.t("Overwrite existing", settings.appLanguage), isOn: Binding(
                     get: { settings.overwrite },
                     set: { settings.overwrite = $0 }
                 ))
-                Toggle("Debug info (-d)", isOn: Binding(
+                Toggle(L10n.t("Debug info (-d)", settings.appLanguage), isOn: Binding(
                     get: { settings.debugInfo },
                     set: { settings.debugInfo = $0 }
                 ))
-                Toggle("Copy only (skip extraction)", isOn: Binding(
+                Toggle(L10n.t("Copy only (skip extraction)", settings.appLanguage), isOn: Binding(
                     get: { settings.copyOnly },
                     set: { settings.copyOnly = $0 }
                 ))
             } header: {
-                Text("Default Extraction Options")
+                Text(L10n.t("Default Extraction Options", settings.appLanguage))
             }
         }
         .formStyle(.grouped)

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct NewCollectionSheet: View {
     @Environment(AppViewModel.self) private var viewModel
+    @Environment(SettingsStore.self) private var settings
     @State private var collectionName = ""
     @Environment(\.dismiss) private var dismiss
 
@@ -11,19 +12,19 @@ struct NewCollectionSheet: View {
                 .font(.system(size: 28))
                 .foregroundStyle(.tint)
 
-            Text("New Collection")
+            Text(L10n.t("New Collection", settings.appLanguage))
                 .font(.headline)
 
-            TextField("Collection name", text: $collectionName)
+            TextField(L10n.t("Collection name", settings.appLanguage), text: $collectionName)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 250)
-                .accessibilityLabel("Collection name")
+                .accessibilityLabel(L10n.t("Collection name", settings.appLanguage))
 
             HStack(spacing: 12) {
-                Button("Cancel") { dismiss() }
+                Button(L10n.t("Cancel", settings.appLanguage)) { dismiss() }
                     .keyboardShortcut(.escape)
 
-                Button("Create") {
+                Button(L10n.t("Create", settings.appLanguage)) {
                     let name = collectionName.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !name.isEmpty else { return }
                     viewModel.createCollection(name: name)

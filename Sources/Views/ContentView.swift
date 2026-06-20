@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(AppViewModel.self) private var viewModel
+    @Environment(SettingsStore.self) private var settings
 
     var body: some View {
         @Bindable var viewModel = viewModel
@@ -21,7 +22,7 @@ struct ContentView: View {
         .sheet(isPresented: $viewModel.showNewCollectionSheet) {
             NewCollectionSheet()
         }
-        .searchable(text: $viewModel.searchText, placement: .automatic, prompt: "Search wallpapers...")
+        .searchable(text: $viewModel.searchText, placement: .automatic, prompt: Text(L10n.t("Search wallpapers...", settings.appLanguage)))
         .onChange(of: viewModel.searchText) { viewModel.onSearchTextChanged() }
     }
 
@@ -97,56 +98,57 @@ private struct RemoteDownloadProgressPanel: View {
 
 private struct FiltersSection: View {
     @Environment(AppViewModel.self) private var viewModel
+    @Environment(SettingsStore.self) private var settings
     @State private var showMatureWarning = false
 
     var body: some View {
         Group {
-            Section("Type") {
-                Picker("Filter by type", selection: Binding(
+            Section(L10n.t("Type", settings.appLanguage)) {
+                Picker(L10n.t("Filter by type", settings.appLanguage), selection: Binding(
                     get: { viewModel.typeFilter ?? "All" },
                     set: {
                         viewModel.typeFilter = $0 == "All" ? nil : $0
                         viewModel.notifyFilterChanged()
                     }
                 )) {
-                    Label("All", systemImage: "square.grid.2x2").tag("All")
-                    Label("Video", systemImage: "film").tag("video")
-                    Label("Image", systemImage: "photo").tag("image")
-                    Label("Scene", systemImage: "cube").tag("scene")
-                    Label("Web", systemImage: "globe").tag("web")
+                    Label(L10n.t("All", settings.appLanguage), systemImage: "square.grid.2x2").tag("All")
+                    Label(L10n.t("Video", settings.appLanguage), systemImage: "film").tag("video")
+                    Label(L10n.t("Image", settings.appLanguage), systemImage: "photo").tag("image")
+                    Label(L10n.t("Scene", settings.appLanguage), systemImage: "cube").tag("scene")
+                    Label(L10n.t("Web", settings.appLanguage), systemImage: "globe").tag("web")
                 }
                 .labelsHidden()
             }
 
-            Section("Rating") {
-                Picker("Filter by rating", selection: ratingBinding) {
-                    Label("All", systemImage: "square.grid.2x2").tag("All")
-                    Label("Everyone", systemImage: "person.2").tag("Everyone")
-                    Label("Questionable", systemImage: "exclamationmark.triangle").tag("Questionable")
-                    Label("Mature", systemImage: "18.circle").tag("Mature")
+            Section(L10n.t("Rating", settings.appLanguage)) {
+                Picker(L10n.t("Filter by rating", settings.appLanguage), selection: ratingBinding) {
+                    Label(L10n.t("All", settings.appLanguage), systemImage: "square.grid.2x2").tag("All")
+                    Label(L10n.t("Everyone", settings.appLanguage), systemImage: "person.2").tag("Everyone")
+                    Label(L10n.t("Questionable", settings.appLanguage), systemImage: "exclamationmark.triangle").tag("Questionable")
+                    Label(L10n.t("Mature", settings.appLanguage), systemImage: "18.circle").tag("Mature")
                 }
                 .labelsHidden()
             }
-            .alert("Mature Content", isPresented: $showMatureWarning) {
-                Button("Cancel", role: .cancel) { }
-                Button("Show Mature Content") {
+            .alert(L10n.t("Mature Content", settings.appLanguage), isPresented: $showMatureWarning) {
+                Button(L10n.t("Cancel", settings.appLanguage), role: .cancel) { }
+                Button(L10n.t("Show Mature Content", settings.appLanguage)) {
                     viewModel.contentRatingFilter = "Mature"
                     viewModel.notifyFilterChanged()
                 }
             } message: {
-                Text("This will display content marked as Mature. Are you sure?")
+                Text(L10n.t("This will display content marked as Mature. Are you sure?", settings.appLanguage))
             }
 
             if !viewModel.allCollections.isEmpty {
-                Section("Collections") {
-                    Picker("Filter by collection", selection: Binding(
+                Section(L10n.t("Collections", settings.appLanguage)) {
+                    Picker(L10n.t("Filter by collection", settings.appLanguage), selection: Binding(
                         get: { viewModel.collectionFilter ?? "All" },
                         set: {
                             viewModel.collectionFilter = $0 == "All" ? nil : $0
                             viewModel.notifyFilterChanged()
                         }
                     )) {
-                        Label("All", systemImage: "square.grid.2x2").tag("All")
+                        Label(L10n.t("All", settings.appLanguage), systemImage: "square.grid.2x2").tag("All")
                         ForEach(viewModel.allCollections, id: \.self) { collection in
                             Label(collection, systemImage: "folder").tag(collection)
                         }
@@ -174,10 +176,11 @@ private struct FiltersSection: View {
 
 private struct ScenePropertiesSidebarSection: View {
     @Environment(AppViewModel.self) private var viewModel
+    @Environment(SettingsStore.self) private var settings
 
     var body: some View {
         if let item = viewModel.currentSceneWallpaperItem {
-            Section("Scene Properties") {
+            Section(L10n.t("Scene Properties", settings.appLanguage)) {
                 ScenePropertiesEditor(item: item)
                     .padding(.vertical, 2)
                     .id(item.id)
@@ -190,26 +193,27 @@ private struct ScenePropertiesSidebarSection: View {
 
 private struct BatchActionBar: View {
     @Environment(AppViewModel.self) private var viewModel
+    @Environment(SettingsStore.self) private var settings
     @State private var isConfirmingDelete = false
 
     var body: some View {
         HStack(spacing: 12) {
-            Text("\(viewModel.selectedIDs.count) selected")
+            Text(String(format: L10n.t("%d selected", settings.appLanguage), viewModel.selectedIDs.count))
                 .font(.subheadline).fontWeight(.medium).foregroundStyle(.tint)
-            Button("Deselect") { viewModel.deselectAll() }.font(.caption)
+            Button(L10n.t("Deselect", settings.appLanguage)) { viewModel.deselectAll() }.font(.caption)
             Divider().frame(height: 16)
 
-            Menu("Add to Collection") {
+            Menu(L10n.t("Add to Collection", settings.appLanguage)) {
                 ForEach(viewModel.allCollections, id: \.self) { collection in
                     Button(collection) { viewModel.batchAddToCollection(collection) }
                 }
                 if !viewModel.allCollections.isEmpty { Divider() }
-                Button("New Collection...") { viewModel.showNewCollectionSheet = true }
+                Button(L10n.t("New Collection...", settings.appLanguage)) { viewModel.showNewCollectionSheet = true }
             }
             .font(.caption).disabled(viewModel.selectedIDs.isEmpty)
 
             if !viewModel.allCollections.isEmpty {
-                Menu("Remove from Collection") {
+                Menu(L10n.t("Remove from Collection", settings.appLanguage)) {
                     ForEach(viewModel.allCollections, id: \.self) { collection in
                         Button(collection) { viewModel.batchRemoveFromCollection(collection) }
                     }
@@ -217,26 +221,26 @@ private struct BatchActionBar: View {
                 .font(.caption).disabled(viewModel.selectedIDs.isEmpty)
             }
 
-            Menu("Rating") {
+            Menu(L10n.t("Rating", settings.appLanguage)) {
                 ForEach(["Everyone", "Questionable", "Mature"], id: \.self) { rating in
-                    Button(rating) { viewModel.batchSetContentRating(rating) }
+                    Button(L10n.contentRating(rating, settings.appLanguage)) { viewModel.batchSetContentRating(rating) }
                 }
             }
             .font(.caption).disabled(viewModel.selectedIDs.isEmpty)
 
-            Button("Delete") { isConfirmingDelete = true }
+            Button(L10n.t("Delete", settings.appLanguage)) { isConfirmingDelete = true }
                 .font(.caption).foregroundStyle(.red)
             Spacer()
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
         .toolbarGlass().subtleShadow()
-        .confirmationDialog("Delete Selected Wallpapers?", isPresented: $isConfirmingDelete) {
-            Button("Delete", role: .destructive) {
+        .confirmationDialog(L10n.t("Delete Selected Wallpapers?", settings.appLanguage), isPresented: $isConfirmingDelete) {
+            Button(L10n.t("Delete", settings.appLanguage), role: .destructive) {
                 viewModel.batchDeleteWallpapers()
             }
-            Button("Cancel", role: .cancel) { }
+            Button(L10n.t("Cancel", settings.appLanguage), role: .cancel) { }
         } message: {
-            Text("This removes \(viewModel.selectedIDs.count) selected wallpapers from disk.")
+            Text(String(format: L10n.t("This removes %d selected wallpapers from disk.", settings.appLanguage), viewModel.selectedIDs.count))
         }
     }
 }
@@ -245,16 +249,17 @@ private struct BatchActionBar: View {
 
 private struct EmptyGalleryView: View {
     @Environment(AppViewModel.self) private var viewModel
+    @Environment(SettingsStore.self) private var settings
 
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: "photo.on.rectangle.angled")
                 .font(.system(size: 48)).foregroundStyle(.secondary)
-            Text("No wallpapers loaded")
+            Text(L10n.t("No wallpapers loaded", settings.appLanguage))
                 .font(.title2).foregroundStyle(.secondary)
-            Text("Open a directory containing Wallpaper Engine wallpapers")
+            Text(L10n.t("Open a directory containing Wallpaper Engine wallpapers", settings.appLanguage))
                 .foregroundStyle(.secondary)
-            Button("Open Directory") { viewModel.selectDirectory() }
+            Button(L10n.t("Open Directory", settings.appLanguage)) { viewModel.selectDirectory() }
                 .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
         }
     }

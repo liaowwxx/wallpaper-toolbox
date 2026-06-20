@@ -41,7 +41,7 @@ struct WallPaperGalleryApp: App {
         .commands {
             // File menu
             CommandGroup(replacing: .newItem) {
-                Button("Open Directory...") {
+                Button(L10n.t("Open Directory...", settingsStore.appLanguage)) {
                     viewModel.selectDirectory()
                 }
                 .keyboardShortcut("o", modifiers: .command)
@@ -50,13 +50,13 @@ struct WallPaperGalleryApp: App {
             // Selection commands in Edit menu
             CommandGroup(after: .pasteboard) {
                 Divider()
-                Button("Select All") {
+                Button(L10n.t("Select All", settingsStore.appLanguage)) {
                     viewModel.selectAll()
                 }
                 .keyboardShortcut("a", modifiers: [.command, .shift])
                 .disabled(viewModel.wallpapers.isEmpty)
 
-                Button("Deselect All") {
+                Button(L10n.t("Deselect All", settingsStore.appLanguage)) {
                     viewModel.deselectAll()
                 }
                 .keyboardShortcut("d", modifiers: [.command, .shift])

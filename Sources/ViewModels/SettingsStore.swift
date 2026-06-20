@@ -20,6 +20,18 @@ enum LibraryMode: String, CaseIterable {
 @MainActor
 final class SettingsStore {
     private let defaults = UserDefaults.standard
+    var appLanguage: AppLanguage {
+        didSet { defaults.set(appLanguage.rawValue, forKey: UserDefaultsKey.appLanguage) }
+    }
+
+    var effectiveLanguage: AppLanguage {
+        appLanguage.effectiveLanguage
+    }
+
+    init() {
+        let rawLanguage = defaults.string(forKey: UserDefaultsKey.appLanguage) ?? AppLanguage.system.rawValue
+        appLanguage = AppLanguage(rawValue: rawLanguage) ?? .system
+    }
 
     // MARK: - General
 

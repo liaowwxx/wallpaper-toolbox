@@ -12,6 +12,7 @@ struct ScenePropertiesSheet: View {
 
 struct ScenePropertiesEditor: View {
     @Environment(AppViewModel.self) private var viewModel
+    @Environment(SettingsStore.self) private var settings
     @Environment(\.dismiss) private var dismiss
 
     let item: WallpaperItem
@@ -83,7 +84,7 @@ struct ScenePropertiesEditor: View {
                 .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("Scene Properties")
+                Text(L10n.t("Scene Properties", settings.appLanguage))
                     .font(.headline)
                 Text(item.title)
                     .font(.caption)
@@ -100,7 +101,7 @@ struct ScenePropertiesEditor: View {
                     Image(systemName: "xmark")
                 }
                 .buttonStyle(.borderless)
-                .help("Close")
+                .help(L10n.t("Close", settings.appLanguage))
             }
         }
         .padding(16)
@@ -109,7 +110,7 @@ struct ScenePropertiesEditor: View {
     private var loadingState: some View {
         VStack(spacing: 12) {
             ProgressView()
-            Text("Loading properties...")
+            Text(L10n.t("Loading properties...", settings.appLanguage))
                 .font(isCompact ? .caption : .callout)
                 .foregroundStyle(.secondary)
         }
@@ -121,10 +122,10 @@ struct ScenePropertiesEditor: View {
                 Image(systemName: "slider.horizontal.3")
                     .font(.largeTitle)
                     .foregroundStyle(.secondary)
-                Text("No editable scene properties")
+                Text(L10n.t("No editable scene properties", settings.appLanguage))
                     .font(.headline)
             }
-            Text("This wallpaper does not declare configurable properties in project.json.")
+            Text(L10n.t("This wallpaper does not declare configurable properties in project.json.", settings.appLanguage))
                 .font(isCompact ? .caption : .callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(isCompact ? .leading : .center)
@@ -161,7 +162,7 @@ struct ScenePropertiesEditor: View {
                 Button {
                     resetAll()
                 } label: {
-                    Label("Reset", systemImage: "arrow.counterclockwise")
+                    Label(L10n.t("Reset", settings.appLanguage), systemImage: "arrow.counterclockwise")
                 }
                 .font(.caption)
                 .buttonStyle(.plain)
@@ -172,13 +173,13 @@ struct ScenePropertiesEditor: View {
                 Button {
                     resetAll()
                 } label: {
-                    Label("Reset All", systemImage: "arrow.counterclockwise")
+                    Label(L10n.t("Reset All", settings.appLanguage), systemImage: "arrow.counterclockwise")
                 }
 
                 Spacer()
 
                 if showsDoneButton {
-                    Button("Done") {
+                    Button(L10n.t("Done", settings.appLanguage)) {
                         dismiss()
                     }
                     .keyboardShortcut(.defaultAction)
@@ -311,7 +312,7 @@ struct ScenePropertiesEditor: View {
                     Image(systemName: "folder")
                 }
                 .buttonStyle(.borderless)
-                .help("Choose file")
+                .help(L10n.t("Choose file", settings.appLanguage))
             }
             .frame(maxWidth: 240, alignment: .trailing)
         }

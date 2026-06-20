@@ -59,6 +59,7 @@ struct AssetPickerSheet: View {
     let item: WallpaperItem
     let assets: [AssetFile]
     @Environment(AppViewModel.self) private var viewModel
+    @Environment(SettingsStore.self) private var settings
     @Environment(\.dismiss) private var dismiss
     @State private var hoveredAsset: AssetFile.ID?
     @State private var expandedVideo: AssetFile.ID?
@@ -73,7 +74,7 @@ struct AssetPickerSheet: View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Select Wallpaper Asset")
+                    Text(L10n.t("Select Wallpaper Asset", settings.appLanguage))
                         .font(.title2)
                         .fontWeight(.semibold)
                     Text(item.title)
@@ -81,7 +82,7 @@ struct AssetPickerSheet: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("Cancel") { dismiss() }
+                Button(L10n.t("Cancel", settings.appLanguage)) { dismiss() }
             }
             .padding()
 
@@ -98,9 +99,9 @@ struct AssetPickerSheet: View {
                     Image(systemName: "questionmark.folder")
                         .font(.system(size: 36))
                         .foregroundStyle(.secondary)
-                    Text("No media files found")
+                    Text(L10n.t("No media files found", settings.appLanguage))
                         .foregroundStyle(.secondary)
-                    Text("Extract the wallpaper first to find video/image files.")
+                    Text(L10n.t("Extract the wallpaper first to find video/image files.", settings.appLanguage))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -123,10 +124,10 @@ struct AssetPickerSheet: View {
             Divider()
 
             HStack {
-                Text("\(assets.count) files found")
+                Text(String(format: L10n.t("%d files found", settings.appLanguage), assets.count))
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button("Cancel") { dismiss() }
+                Button(L10n.t("Cancel", settings.appLanguage)) { dismiss() }
             }
             .padding()
         }
@@ -149,9 +150,9 @@ struct AssetPickerSheet: View {
                     .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Render Scene Directly")
+                    Text(L10n.t("Render Scene Directly", settings.appLanguage))
                         .font(.body.weight(.semibold))
-                    Text("Use wallpaper-wgpu to render this scene as a live wallpaper.")
+                    Text(L10n.t("Use wallpaper-wgpu to render this scene as a live wallpaper.", settings.appLanguage))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -167,8 +168,8 @@ struct AssetPickerSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Render scene directly")
-        .accessibilityHint("Set this scene wallpaper through the realtime renderer")
+        .accessibilityLabel(L10n.t("Render scene directly", settings.appLanguage))
+        .accessibilityHint(L10n.t("Set this scene wallpaper through the realtime renderer", settings.appLanguage))
     }
 
     // MARK: - Image Asset
@@ -205,8 +206,8 @@ struct AssetPickerSheet: View {
             )
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(asset.name), \(asset.isVideo ? "Video" : "Image"), \(asset.formattedSize)")
-        .accessibilityHint("Double-tap to set as wallpaper")
+        .accessibilityLabel("\(asset.name), \(L10n.t(asset.isVideo ? "Video" : "Image", settings.appLanguage)), \(asset.formattedSize)")
+        .accessibilityHint(L10n.t("Double-tap to set as wallpaper", settings.appLanguage))
         .animation(.easeInOut(duration: 0.15), value: hoveredAsset)
         .onHover { hovering in
             hoveredAsset = hovering ? asset.id : nil
@@ -297,7 +298,7 @@ struct AssetPickerSheet: View {
             HStack(spacing: 8) {
                 Label(asset.formattedSize, systemImage: "arrow.down.doc")
                     .font(.caption).foregroundStyle(.secondary)
-                Label(asset.isVideo ? "Video" : "Image", systemImage: asset.icon)
+                Label(L10n.t(asset.isVideo ? "Video" : "Image", settings.appLanguage), systemImage: asset.icon)
                     .font(.caption)
                     .foregroundStyle(asset.isVideo ? .purple : .blue)
             }
@@ -327,6 +328,7 @@ final class VideoPlayerStateHolder {
 // MARK: - Video Player Panel (extracted subview for efficient diffing)
 
 private struct VideoPlayerPanelView: View {
+    @Environment(SettingsStore.self) private var settings
     @Bindable var state: VideoPlayerState
     let asset: AssetFile
     let videoSize: CGSize
@@ -358,18 +360,18 @@ private struct VideoPlayerPanelView: View {
                 }
                 .padding(.horizontal, 4)
             } else {
-                ProgressView("Loading...").scaleEffect(0.7)
+                ProgressView(L10n.t("Loading...", settings.appLanguage)).scaleEffect(0.7)
             }
 
             HStack(spacing: 16) {
                 Button(action: onSetWallpaper) {
-                    Label("Set as Wallpaper", systemImage: "display").font(.caption)
+                    Label(L10n.t("Set as Wallpaper", settings.appLanguage), systemImage: "display").font(.caption)
                 }
 
                 Button {
                     onSetFrame(CMTime(seconds: state.currentTime, preferredTimescale: 600))
                 } label: {
-                    Label("Set Frame", systemImage: "camera.viewfinder").font(.caption)
+                    Label(L10n.t("Set Frame", settings.appLanguage), systemImage: "camera.viewfinder").font(.caption)
                 }
                 .disabled(state.duration <= 0)
             }
