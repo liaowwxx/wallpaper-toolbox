@@ -533,7 +533,10 @@ final class AppViewModel {
                     detail: "\(Int((value * 100).rounded()))%"
                 )
             }
-            let archiveLayout = try await inspectArchiveLayout(in: archive)
+            let archiveLayout = try await inspectArchiveLayout(
+                in: archive,
+                expectedAssetNames: record.assets.map(\.name)
+            )
             remoteDownloadProgress = RemoteDownloadProgress(id: progressID, title: item.title, progress: 1, detail: "Installing")
             let installPlan = makeRemoteInstallPlan(
                 for: record,
@@ -544,7 +547,11 @@ final class AppViewModel {
                 at: installPlan.destination,
                 withIntermediateDirectories: true
             )
-            try await unzipArchive(archive, to: installPlan.destination)
+            try await unzipArchive(
+                archive,
+                to: installPlan.destination,
+                readerOptions: archiveLayout.readerOptions
+            )
             let downloadedFolderName = installPlan.folderName
             let downloadedFolderURL = settings.remoteDownloadDirectory.appendingPathComponent(downloadedFolderName, isDirectory: true)
             guard remoteDownloadedFolderSatisfies(record: record, folderURL: downloadedFolderURL) else {
@@ -756,6 +763,7 @@ final class AppViewModel {
     private struct RemoteArchiveLayout {
         let topLevelDirectories: [String]
         let hasRootFiles: Bool
+        let readerOptions: String?
     }
 
     private func makeRemoteInstallPlan(
@@ -772,32 +780,160 @@ final class AppViewModel {
         return (expected, root.appendingPathComponent(expected, isDirectory: true))
     }
 
-    private func inspectArchiveLayout(in archive: URL) async throws -> RemoteArchiveLayout {
-        try await Task.detached {
-            let process = Process()
-            let pipe = Pipe()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-            process.arguments = ["-Z1", archive.path]
-            process.standardOutput = pipe
-            process.standardError = Pipe()
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else {
-                throw RemoteLibraryError.downloadFailed("Unable to inspect downloaded wallpaper archive.")
+    private struct RemoteArchiveListing {
+        let strategy: RemoteArchiveReaderStrategy
+        let entries: [String]
+        let replacementCharacterCount: Int
+        let expectedAssetMatchCount: Int
+    }
+
+    private struct RemoteArchiveReaderStrategy {
+        let readerOptions: String?
+
+        static let candidates = [
+            RemoteArchiveReaderStrategy(readerOptions: nil),
+            RemoteArchiveReaderStrategy(readerOptions: "hdrcharset=CP936")
+        ]
+    }
+
+    private struct ArchiveProcessResult {
+        let output: String
+    }
+
+    private nonisolated static func archiveToolURL() -> URL {
+        let bsdtar = URL(fileURLWithPath: "/usr/bin/bsdtar")
+        if FileManager.default.fileExists(atPath: bsdtar.path) {
+            return bsdtar
+        }
+        return URL(fileURLWithPath: "/usr/bin/tar")
+    }
+
+    private nonisolated static func runArchiveTool(arguments: [String]) throws -> ArchiveProcessResult {
+        let process = Process()
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.executableURL = archiveToolURL()
+        process.arguments = arguments
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try process.run()
+        process.waitUntilExit()
+
+        let outputData = stdout.fileHandleForReading.readDataToEndOfFile()
+        let errorData = stderr.fileHandleForReading.readDataToEndOfFile()
+        let output = String(decoding: outputData, as: UTF8.self)
+        let errorOutput = String(decoding: errorData, as: UTF8.self)
+
+        guard process.terminationStatus == 0 else {
+            let message = errorOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw RemoteLibraryError.downloadFailed(
+                message.isEmpty ? "Unable to process downloaded wallpaper archive." : message
+            )
+        }
+
+        return ArchiveProcessResult(output: output)
+    }
+
+    private nonisolated static func archiveArguments(
+        modeArguments: [String],
+        readerOptions: String?
+    ) -> [String] {
+        var arguments = modeArguments
+        if let readerOptions {
+            arguments.append(contentsOf: ["--options", readerOptions])
+        }
+        return arguments
+    }
+
+    private nonisolated static func archiveListing(
+        for archive: URL,
+        strategy: RemoteArchiveReaderStrategy,
+        expectedAssetNames: Set<String>
+    ) throws -> RemoteArchiveListing {
+        let result = try runArchiveTool(arguments: archiveArguments(
+            modeArguments: ["-tf", archive.path],
+            readerOptions: strategy.readerOptions
+        ))
+        let entries = result.output
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+            .filter { !$0.isEmpty }
+        let replacementCount = result.output.reduce(0) { count, character in
+            character == "\u{FFFD}" ? count + 1 : count
+        }
+        let localNames = Set(entries.map { URL(fileURLWithPath: $0).lastPathComponent.lowercased() })
+        let expectedMatchCount = expectedAssetNames.reduce(0) { count, name in
+            localNames.contains(name) ? count + 1 : count
+        }
+
+        return RemoteArchiveListing(
+            strategy: strategy,
+            entries: entries,
+            replacementCharacterCount: replacementCount,
+            expectedAssetMatchCount: expectedMatchCount
+        )
+    }
+
+    private nonisolated static func bestArchiveListing(
+        for archive: URL,
+        expectedAssetNames: Set<String>
+    ) throws -> RemoteArchiveListing {
+        var listings: [RemoteArchiveListing] = []
+        var lastError: Error?
+
+        for strategy in RemoteArchiveReaderStrategy.candidates {
+            do {
+                listings.append(try archiveListing(
+                    for: archive,
+                    strategy: strategy,
+                    expectedAssetNames: expectedAssetNames
+                ))
+            } catch {
+                lastError = error
             }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let output = String(data: data, encoding: .utf8) ?? ""
+        }
+
+        guard let best = listings.max(by: { lhs, rhs in
+            if lhs.expectedAssetMatchCount != rhs.expectedAssetMatchCount {
+                return lhs.expectedAssetMatchCount < rhs.expectedAssetMatchCount
+            }
+            return lhs.replacementCharacterCount > rhs.replacementCharacterCount
+        }) else {
+            throw lastError ?? RemoteLibraryError.downloadFailed("Unable to inspect downloaded wallpaper archive.")
+        }
+
+        return best
+    }
+
+    private nonisolated static func validateArchiveEntries(_ entries: [String]) throws {
+        for entry in entries {
+            guard !entry.hasPrefix("/") else {
+                throw RemoteLibraryError.downloadFailed("Downloaded archive contains an absolute path: \(entry)")
+            }
+
+            let components = entry.split(separator: "/", omittingEmptySubsequences: true)
+            guard !components.contains("..") else {
+                throw RemoteLibraryError.downloadFailed("Downloaded archive contains a parent-directory path: \(entry)")
+            }
+        }
+    }
+
+    private func inspectArchiveLayout(in archive: URL, expectedAssetNames: [String]) async throws -> RemoteArchiveLayout {
+        try await Task.detached {
+            let expectedAssetNames = Set(expectedAssetNames.map { $0.lowercased() })
+            let listing = try Self.bestArchiveListing(for: archive, expectedAssetNames: expectedAssetNames)
+            try Self.validateArchiveEntries(listing.entries)
             var topLevelDirectories = Set<String>()
             var hasRootFiles = false
 
-            for line in output.split(whereSeparator: \.isNewline) {
-                let components = line.split(separator: "/", omittingEmptySubsequences: true)
+            for entry in listing.entries {
+                let components = entry.split(separator: "/", omittingEmptySubsequences: true)
                 guard let first = components.first else { continue }
                 let topLevelName = String(first)
                 guard topLevelName != "__MACOSX" else { continue }
 
                 if components.count == 1 {
-                    if !topLevelName.hasSuffix("/") {
+                    if !entry.hasSuffix("/") {
                         hasRootFiles = true
                     }
                 } else {
@@ -807,21 +943,18 @@ final class AppViewModel {
 
             return RemoteArchiveLayout(
                 topLevelDirectories: topLevelDirectories.sorted(),
-                hasRootFiles: hasRootFiles
+                hasRootFiles: hasRootFiles,
+                readerOptions: listing.strategy.readerOptions
             )
         }.value
     }
 
-    private func unzipArchive(_ archive: URL, to destination: URL) async throws {
+    private func unzipArchive(_ archive: URL, to destination: URL, readerOptions: String?) async throws {
         try await Task.detached {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-            process.arguments = ["-q", "-o", archive.path, "-d", destination.path]
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else {
-                throw RemoteLibraryError.downloadFailed("Unable to unpack downloaded wallpaper archive.")
-            }
+            _ = try Self.runArchiveTool(arguments: Self.archiveArguments(
+                modeArguments: ["-xf", archive.path, "-C", destination.path],
+                readerOptions: readerOptions
+            ))
         }.value
     }
 

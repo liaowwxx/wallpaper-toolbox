@@ -1,112 +1,206 @@
 # WallPaper Gallery
 
-WallPaper Gallery is a macOS-native SwiftUI toolbox for local Wallpaper Engine libraries. It scans wallpaper folders, generates previews, extracts `.pkg` assets through RePKG, and can set image, video, and scene wallpapers.
+WallPaper Gallery 是一个围绕 Wallpaper Engine 壁纸库构建的跨端工具集。当前仓库包含：
 
-The macOS app also supports an optional remote mode for browsing a Windows-hosted Wallpaper Engine library. Remote wallpapers are downloaded as original source folders first, then handled by the same local image/video/scene wallpaper pipeline.
+- macOS 原生 SwiftUI 应用：扫描本机壁纸库、管理标签/收藏/分级、解包 `.pkg`、设置图片/视频/场景壁纸。
+- Windows Server Demo：在 Windows 电脑上扫描 Wallpaper Engine 创意工坊目录，生成缩略图和 `library.json`，并通过 API 提供给 macOS/iOS 访问。
+- iOS/iPadOS Demo：连接 Windows Server，浏览远程壁纸、预览视频、触发远程解包、保存或分享媒体文件。
 
-The repository also contains early cross-platform demos:
+典型使用方式是：Windows 电脑存放 Steam Wallpaper Engine 资源并运行服务端；macOS 或 iOS 设备通过局域网或 Tailscale 连接服务端。
 
-- `Apps/iOSDemo`: an iPhone/iPad client for browsing a remote Windows wallpaper library.
-- `Apps/WindowsServerDemo`: a Streamlit-controlled Windows server demo that scans Wallpaper Engine folders, generates thumbnails, serves a manifest, and runs RePKG unpack jobs on demand.
-- `docs/cross-platform-windows-server-plan.md`: the design plan for the remote Windows library workflow.
+## 目录
 
-## macOS App
+- [Windows Server 端](#windows-server-端)
+- [macOS 端](#macos-端)
+- [iOS 端](#ios-端)
+- [项目架构](#项目架构)
+- [开源组件](#开源组件)
+- [许可证](#许可证)
 
-Run from the repository root:
+## Windows Server 端
+
+Windows Server Demo 位于：
+
+```text
+Apps/WindowsServerDemo
+```
+
+它提供一个 Streamlit 控制面板，用来配置壁纸库路径、RePKG、缩略图生成和 API 服务。
+
+### 依赖
+
+必需：
+
+- Windows 10/11
+- Python 3.10 或更新版本
+- Wallpaper Engine 本地创意工坊目录，通常类似：
+
+```text
+D:\SteamLibrary\steamapps\workshop\content\431960
+```
+
+- RePKG Windows 可执行文件：`RePKG.exe`
+
+Python 依赖见 `Apps/WindowsServerDemo/requirements.txt`：
+
+```text
+fastapi
+uvicorn[standard]
+streamlit
+pillow
+```
+
+可选但推荐：
+
+- `ffmpeg.exe`：用于没有 `preview.jpg/png/gif/webp` 的视频壁纸生成缩略图。
+- `miniserve.exe`：仅用于 Windows 本机调试静态文件访问；正常 macOS/iOS 连接不需要。
+- Tailscale：不在同一局域网时推荐使用。
+
+### 安装 Python 依赖
+
+在 PowerShell 中执行：
+
+```powershell
+cd Apps\WindowsServerDemo
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+### 运行控制面板
+
+```powershell
+streamlit run wallpaper_server_demo\streamlit_app.py
+```
+
+打开 Streamlit 页面后按顺序设置：
+
+1. `Wallpaper library root`：选择 Wallpaper Engine 创意工坊目录，例如 `...\workshop\content\431960`。
+2. `RePKG executable`：选择 `RePKG.exe`，或确保它已在 `PATH` 中。
+3. `ffmpeg executable`：可选，选择 `ffmpeg.exe`。
+4. `API host`：通常保持 `0.0.0.0`，表示允许局域网设备访问。
+5. `API port`：默认 `8090`。
+6. `API username` / `API password`：可选。任一字段非空时，API 会启用 Basic Auth。
+7. `Public API base URL`：远程访问时可填写外部可访问地址；局域网或 Tailscale 场景可使用页面显示的 URL。
+8. `Public static base URL`：正常 iOS/macOS 工作流建议留空。
+
+然后点击：
+
+```text
+Generate thumbnails + manifest
+Start API server
+```
+
+服务启动后，客户端一般使用如下地址连接：
+
+```text
+http://<Windows电脑IP>:8090
+```
+
+如果使用 Tailscale，通常类似：
+
+```text
+http://100.x.y.z:8090
+```
+
+### 壁纸目录要求
+
+服务端扫描库根目录下的直接子目录。推荐结构：
+
+```text
+D:\SteamLibrary\steamapps\workshop\content\431960
+  |-- 281990
+  |   |-- project.json
+  |   |-- preview.jpg
+  |   `-- scene.pkg
+  |-- 843221
+  |   |-- project.json
+  |   `-- scene.mp4
+  |-- extracted
+  |-- thumbs
+  `-- library.json
+```
+
+服务端会读取 `project.json` 中的 `title`、`type`、`file`、`preview_tagger`、`repkgcollection` 等信息，生成 manifest 并发布以下 API：
+
+```text
+GET  /api/status
+GET  /library.json
+GET  /api/library
+GET  /api/wallpapers
+GET  /api/wallpapers/{id}
+POST /api/wallpapers/{id}/unpack
+GET  /api/jobs/{jobId}
+POST /api/library/rescan
+GET  /files/{relative_path}
+GET  /api/wallpapers/{id}/download
+```
+
+`/files/...` 只允许访问已经写入 `library.json` 的文件，不会开放整个壁纸目录。
+
+### 防火墙和网络
+
+- 第一次启动 API 时，Windows 可能弹出防火墙提示，需要允许 Python/uvicorn 访问专用网络。
+- 如果手机和 Windows 不在同一个 Wi-Fi 下，建议使用 Tailscale。
+- `miniserve` 当前默认绑定 `127.0.0.1`，主要用于 Windows 本机调试，不是正常客户端连接路径。
+
+## macOS 端
+
+macOS 应用位于仓库根目录的 Swift Package：
+
+```text
+Sources/
+Package.swift
+```
+
+目标系统：
+
+- macOS 26+
+- Swift tools version 6.2
+- Swift 5 language mode
+
+### 运行与打包
+
+开发运行：
 
 ```bash
 swift run
 ```
 
-Build a release binary:
+构建 release：
 
 ```bash
 swift build -c release
 ```
 
-Build the `.app` bundle or DMG:
+构建 `.app`：
+
+```bash
+make app
+```
+
+构建 `.dmg`：
+
+```bash
+make dmg
+```
+
+也可以使用脚本：
 
 ```bash
 ./scripts/build.sh
 ./scripts/build.sh dmg
 ```
 
-The app bundle is written to:
+生成的 app 通常位于：
 
 ```text
 .build/WallPaper Gallery.app
 ```
 
-Open the generated app bundle when testing remote mode. The bundle Info.plist includes App Transport Security and local-network permissions needed for the Windows demo API.
+### macOS 依赖文件
 
-## Wallpaper Support
-
-### Image and Video
-
-Image wallpapers are applied through `NSWorkspace`.
-
-Video wallpapers use the bundled native helper:
-
-```text
-resources/bin/WallpaperPlayer
-```
-
-The build script copies this helper into the app bundle as `Contents/Resources/WallpaperPlayer`.
-
-### Scene Wallpapers
-
-Scene wallpapers support two paths from the normal `Set as Wallpaper...` flow:
-
-1. The app first attempts the existing RePKG extraction flow for `scene.pkg`.
-2. The asset picker opens.
-3. At the top of the picker, `Render Scene Directly` starts realtime scene rendering through `wallpaper-wgpu`.
-4. Below that, extracted image/video files are still listed and can be selected like normal wallpapers.
-
-This keeps the old extracted-file workflow available while adding realtime scene rendering.
-
-Scene rendering uses:
-
-```text
-resources/bin/wallpaper-wgpu
-resources/assets/
-resources/dxc
-resources/lib/libdxcompiler.dylib
-```
-
-The renderer is launched with wallpaper/background flags, per-screen geometry, FPS limiting, optional MetalFX upscaling, bundled assets, and saved user property overrides.
-
-### Scene Properties
-
-Scene wallpapers can define user-adjustable options in `project.json -> general.properties`, similar to Wallpaper Engine. Right-click a scene card and choose `Scene Properties...` to edit supported controls:
-
-- sliders
-- toggles
-- colors
-- combo boxes
-- text/file values
-- conditional visibility
-
-Overrides are saved under Application Support:
-
-```text
-~/Library/Application Support/com.wallpaper.gallery/SceneProperties/
-```
-
-When a rendered scene is already active, changing scene properties restarts the scene renderer with updated `--user-properties`.
-
-### Scene Performance Settings
-
-Open Settings -> Wallpaper -> Scene Rendering to configure:
-
-- MetalFX upscaling for scene wallpapers
-- render scale, default `70%`
-- scene FPS cap, default `60 FPS`
-
-`Save & Reapply` persists the settings and restarts the current scene wallpaper using the new values.
-
-## Bundled Runtime Assets
-
-The macOS app expects these resources to exist before packaging:
+打包时需要以下资源存在：
 
 ```text
 resources/osx-arm64/RePKG
@@ -121,75 +215,273 @@ resources/dxc
 resources/lib/libdxcompiler.dylib
 ```
 
-`scripts/build.sh` copies these into the app bundle. `REPKG_PATH`, `WALLPAPER_WGPU_PATH`, and `WALLPAPER_WGPU_ASSETS_PATH` can override the bundled defaults during development.
+用途：
 
-## Remote Windows Demo
+- `RePKG` 和 .NET runtime：解包 Wallpaper Engine `.pkg`。
+- `WallpaperPlayer`：播放视频壁纸。
+- `wallpaper-wgpu`、`resources/assets/`、`dxc`、`libdxcompiler.dylib`：实时渲染 scene 壁纸。
+- `ffmpeg`：可选。若系统安装了 Homebrew 版 `ffmpeg`，视频缩略图生成会更稳；没有也可以运行。
 
-The current remote workflow is API-server first:
+开发时可以用环境变量覆盖默认路径：
 
-1. Run the Streamlit control panel on the Windows PC.
-2. Choose the Wallpaper Engine library root, `RePKG.exe`, and optional `ffmpeg.exe`.
-3. Set `API username` and `API password` to enable Basic Auth.
-4. Generate thumbnails and `library.json`.
-5. Start the API server.
-6. On macOS or iOS, enter the Streamlit-provided API URL plus the same username/password.
-
-### macOS Remote Mode
-
-Open Settings -> General -> Library, then switch from `Local` to `Remote`.
-
-Remote mode settings:
-
-- `Server URL`: the Windows demo API URL, for example `http://192.168.1.20:8090`.
-- `Username` / `Password`: the Basic Auth credentials configured in the Windows control panel.
-- Remote download directory: where original wallpaper folders are stored on the Mac.
-- `Connect`: fetches the remote `library.json` and shows the remote library.
-
-The app remembers the last selected library mode. If the previous mode was `Remote`, the app automatically attempts to connect on launch. If remote mode is selected but not connected, the gallery stays empty instead of showing the previous local directory.
-
-Each remote wallpaper card is marked as downloaded or not downloaded:
-
-- Not downloaded: the context menu only contains `Download`.
-- Downloaded: the context menu is the same as local mode, including `Set as Wallpaper...`, `Set on All Screens...`, scene properties, extraction, Finder, and metadata actions.
-
-Downloads are shown with an in-app progress panel. macOS does not provide a generic native download HUD for custom app transfers, so the app uses a SwiftUI floating progress panel.
-
-### Remote Downloads
-
-Remote macOS downloads do not unpack on Windows. The Windows demo publishes a source archive URL for each wallpaper:
-
-```text
-/api/wallpapers/{item_id}/download
+```bash
+export REPKG_PATH="/path/to/RePKG"
+export WALLPAPER_WGPU_PATH="/path/to/wallpaper-wgpu"
+export WALLPAPER_WGPU_ASSETS_PATH="/path/to/assets"
 ```
 
-The endpoint zips the original wallpaper source folder and streams it to the Mac. After download, the app unzips that folder into the configured remote download directory and writes a small registry file:
+### Library 设置
+
+打开 macOS 应用后进入 Settings -> Library。
+
+`Library Mode`：
+
+- `Local`：扫描本机文件夹。
+- `Remote`：连接 Windows Server，浏览远程库。远程壁纸会先下载原始源文件夹，再走本地设置壁纸流程。
+
+本地模式：
+
+- `Open Folder`：选择本机 Wallpaper Engine 库或其他壁纸目录。
+- `Default Scan Mode`：
+  - `Subdir`：按 Wallpaper Engine workshop 子目录扫描，适合 `project.json + preview + pkg/媒体文件` 结构。
+  - `Flat`：递归扫描图片/视频文件，适合普通文件夹。
+- `Output`：RePKG 解包输出目录。
+- `RePKG Binary`：默认使用内置 RePKG；如需调试或替换版本，可手动选择。
+
+远程模式：
+
+- `Server URL`：Windows Server API 地址，例如 `http://192.168.1.20:8090` 或 Tailscale 地址。
+- `Username` / `Password`：与 Windows Streamlit 页面里设置的 Basic Auth 一致；服务端未设置认证时可留空。
+- `Download Folder`：远程壁纸下载到 Mac 上的位置。
+- `Connect`：拉取远程 `library.json` 并显示远程壁纸库。
+
+远程卡片状态：
+
+- `未下载`：右键菜单中主要是 `Download`。
+- 已下载：行为接近本地壁纸，可设置壁纸、解包、打开 Finder、编辑元数据等。
+
+远程下载完成后，应用会在下载目录写入：
 
 ```text
 .wallpaper-remote-downloads.json
 ```
 
-That registry maps remote item IDs to the downloaded local folder names, so downloaded status can be restored immediately and across app launches. Once downloaded, image, video, and scene wallpapers use the same local setting logic as normal local wallpapers. Scene wallpapers still use the normal scene pipeline: attempt RePKG extraction first, then offer `Render Scene Directly` plus extracted media assets.
+它用于记录远程 ID 和本地文件夹名的映射，下次启动可以恢复下载状态。
 
-The Windows manifest includes:
+### Wallpaper 设置
 
-- `relativeDir`: the source folder's relative location in the Windows library.
-- `sourceArchive`: the API route used by the macOS app to download the original folder.
-- `thumbnail`: the published thumbnail URL.
-- `assets`: published media assets for clients that use the iOS-style streaming flow.
+Settings -> Wallpaper：
 
-For normal iOS use, leave `Public static base URL` blank. The iOS app loads thumbnails and media through the API `/files/...` endpoint. That endpoint only serves files already published in `library.json`, so unrelated files under the library root are not exposed.
+- `Restore wallpaper on launch`：应用启动时恢复上一次设置的壁纸。
+- `Mute video wallpaper`：视频壁纸静音播放。
+- `Auto-replace static wallpaper with first frame`：设置视频壁纸时抓取首帧作为静态桌面回退图，方便空间切换或登录界面显示。
+- `MetalFX upscaling for scene wallpapers`：scene 壁纸低分辨率渲染后通过 MetalFX 放大，降低 GPU 压力。
+- `Render scale`：scene 内部渲染比例。
+- `Scene FPS limit`：scene 壁纸帧率上限，会与显示器刷新率取较低值。
+- `Save & Reapply`：保存 scene 渲染设置，并重新应用当前 scene 壁纸。
 
-`miniserve` is currently optional and localhost-only in the demo. It is useful for local debugging on the Windows PC, but it is not part of the normal iOS workflow.
+### Extraction 设置
 
-See `Apps/WindowsServerDemo/README.md` and `Apps/iOSDemo/README.md` for setup details.
+Settings -> Extraction：
 
-## Repository Layout
+- `Ignore extensions (-i)`：解包时忽略指定扩展名，例如 `.png,.jpg`。
+- `Only extensions (-e)`：只解包指定扩展名。
+- `Convert TEX files (-t)`：转换 `.tex` 贴图。
+- `No TEX conversion`：禁用 TEX 转换。
+- `Single directory (-s)`：输出到单层目录。
+- `Recursive (-r)`：递归处理。
+- `Copy project.json (-c)`：解包时复制 `project.json`。
+- `Use name (-n)`：使用项目名称作为输出名。
+- `Overwrite existing`：覆盖已有文件。
+- `Debug info (-d)`：输出调试信息。
+- `Copy only (skip extraction)`：仅复制，不执行解包。
+
+这些设置会作为 RePKG 默认参数参与单个或批量解包。
+
+### 连接 Windows Server
+
+1. 先在 Windows 上启动 Streamlit 控制面板。
+2. 生成 thumbnails 和 `library.json`。
+3. 点击 `Start API server`。
+4. 在 macOS Settings -> Library 中切换到 `Remote`。
+5. 填入 `Server URL`、`Username`、`Password`。
+6. 选择 `Download Folder`。
+7. 点击 `Connect`。
+8. 远程壁纸出现后，右键未下载壁纸选择 `Download`。
+9. 下载完成后即可像本地壁纸一样设置。
+
+## iOS 端
+
+iOS Demo 位于：
+
+```text
+Apps/iOSDemo
+```
+
+当前是一个远程浏览/预览/保存 demo，不会设置 iOS 系统壁纸。这是 iOS 平台限制和当前阶段设计边界。
+
+### 安装和运行
+
+要求：
+
+- Xcode
+- iOS/iPadOS 模拟器或真机
+- 如果使用真机，需要在 Xcode 中设置自己的 Team 签名
+
+运行步骤：
+
+1. 打开工程：
+
+```bash
+open Apps/iOSDemo/WallpaperGalleryiOSDemo.xcodeproj
+```
+
+2. 在 Xcode 中选择 `WallpaperGalleryiOSDemo` scheme。
+3. 选择 iPhone/iPad 模拟器或真机。
+4. 点击 Run。
+
+应用首次启动会加载内置示例 manifest。连接真实 Windows 库：
+
+1. 启动 Windows Server Demo。
+2. 在 Streamlit 中设置认证信息。
+3. 点击 `Generate thumbnails + manifest`。
+4. 点击 `Start API server`。
+5. 复制 Streamlit 页面显示的 `iOS Settings URL`。
+6. 在 iOS app 的 Settings tab 中填写 Server URL、Username、Password。
+7. 返回 Library 页面浏览远程壁纸。
+
+### iOS 功能
+
+- 读取 `library.json`。
+- 支持 Basic Auth。
+- 支持搜索、收藏、标签、类型标记。
+- 加载远程缩略图。
+- 对视频资源使用 `AVPlayer` 流式预览。
+- 对 `.pkg` 壁纸可触发服务端 `POST /api/wallpapers/{id}/unpack`。
+- 支持 `ShareLink` 导出远程 URL。
+- 支持 Save to Photos：下载选中的媒体文件并保存到系统相册。
+
+建议：
+
+- 同一局域网下直接使用 Windows IP。
+- 不在同一网络时使用 Tailscale。
+- Windows Demo 的 `Public static base URL` 保持为空，iOS 会通过 API 的 `/files/...` 端点加载缩略图和媒体。
+
+## 项目架构
+
+整体结构：
 
 ```text
 Sources/                  macOS SwiftUI app
 Apps/iOSDemo/             iOS/iPadOS remote client demo
 Apps/WindowsServerDemo/   Windows Streamlit + FastAPI server demo
-docs/                     cross-platform planning notes
-resources/                bundled macOS runtime assets
-scripts/                  helper scripts
+docs/                     跨平台远程库设计文档
+resources/                macOS 运行时资源和渲染资源
+scripts/                  打包脚本
 ```
+
+### macOS 应用架构
+
+macOS 端采用 SwiftUI + MVVM，核心状态集中在 `AppViewModel`：
+
+```text
+Sources/
+├── App.swift
+├── Models/
+│   ├── WallpaperItem.swift
+│   ├── AssetFile.swift
+│   └── RemoteLibraryModels.swift
+├── ViewModels/
+│   ├── AppViewModel.swift
+│   └── SettingsStore.swift
+├── Views/
+│   ├── ContentView.swift
+│   ├── GalleryView.swift
+│   ├── SettingsView.swift
+│   ├── ExtractSheet.swift
+│   ├── AssetPickerSheet.swift
+│   ├── ScenePropertiesSheet.swift
+│   └── NewCollectionSheet.swift
+├── Services/
+│   ├── WallpaperScanner.swift
+│   ├── RemoteLibraryClient.swift
+│   ├── RePKGService.swift
+│   ├── WallpaperService.swift
+│   ├── SceneWallpaperRendererService.swift
+│   ├── SceneWallpaperPropertiesService.swift
+│   └── MetadataService.swift
+└── Utils/
+    ├── ThumbnailCache.swift
+    ├── CGImage+Thumbnail.swift
+    ├── DesignSystem.swift
+    ├── Constants.swift
+    └── PathResolver.swift
+```
+
+关键流程：
+
+- 扫描：`WallpaperScanner` 根据 `Subdir` 或 `Flat` 模式生成 `WallpaperItem`。
+- 缩略图：优先使用预览图；视频可用 AVFoundation 或 `ffmpeg` 生成帧图。
+- 元数据：子目录模式写回 `project.json` 扩展字段；Flat 模式写 `_repkg_meta.json`。
+- 解包：`RePKGService` 包装 RePKG CLI，支持流式日志和 async/await。
+- 图片壁纸：`WallpaperService` 调用 macOS 桌面图片 API。
+- 视频壁纸：启动 `WallpaperPlayer`。
+- scene 壁纸：优先尝试 RePKG 解包，也可通过 `wallpaper-wgpu` 实时渲染。
+- 远程模式：`RemoteLibraryClient` 拉取 manifest 和 ZIP；下载后落地为本地文件夹，再走本地管线。
+
+### Windows Server 架构
+
+```text
+Apps/WindowsServerDemo/wallpaper_server_demo/
+├── streamlit_app.py   # 控制面板
+├── api.py             # FastAPI 路由
+├── library.py         # 扫描、缩略图、manifest、解包逻辑
+├── models.py          # manifest 数据模型
+└── config.py          # server-config.json 读写
+```
+
+职责：
+
+- 扫描 Wallpaper Engine 源目录。
+- 生成 `library.json`。
+- 生成缩略图。
+- 提供 Basic Auth。
+- 提供 `/files/...` 安全文件访问。
+- 提供远程 `.pkg` 解包任务。
+- 提供源文件夹 ZIP 下载给 macOS。
+
+### iOS Demo 架构
+
+```text
+Apps/iOSDemo/WallpaperGalleryiOSDemo/
+├── App/
+├── Models/
+├── Services/
+├── ViewModels/
+├── Views/
+└── Resources/library.json
+```
+
+职责：
+
+- 保存连接设置。
+- 拉取远程 manifest。
+- 展示远程壁纸库。
+- 预览图片/视频。
+- 触发服务端解包。
+- 保存媒体到照片或通过系统分享。
+
+## 开源组件
+
+本项目使用或集成了以下开源组件：
+
+- [notscuffed/repkg](https://github.com/notscuffed/repkg)：用于解包 Wallpaper Engine `.pkg` 文件。macOS 端内置 arm64 运行时资源，Windows Server 端需要配置 `RePKG.exe`。
+- [jipika/WaifuX](https://github.com/jipika/WaifuX)：用于 Wallpaper Engine scene 渲染相关能力的参考/集成基础，项目中的 `wallpaper-wgpu`、scene 资源和渲染管线围绕该方向工作。
+
+另外，Windows Server Demo 还依赖 FastAPI、Uvicorn、Streamlit、Pillow；视频缩略图可选使用 `ffmpeg`。
+
+请根据各项目许可证要求使用、分发和署名相关组件。
+
+## 许可证
+
+本项目以 GNU General Public License v3.0 授权发布，详见 [LICENSE](LICENSE)。
