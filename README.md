@@ -105,20 +105,10 @@ http://100.x.y.z:8090
 
 ### 壁纸目录要求
 
-服务端扫描库根目录下的直接子目录。推荐结构：
+服务端扫描库根目录下的直接子目录。一般情况下的壁纸目录为：
 
 ```text
 D:\SteamLibrary\steamapps\workshop\content\431960
-  |-- 281990
-  |   |-- project.json
-  |   |-- preview.jpg
-  |   `-- scene.pkg
-  |-- 843221
-  |   |-- project.json
-  |   `-- scene.mp4
-  |-- extracted
-  |-- thumbs
-  `-- library.json
 ```
 
 服务端会读取 `project.json` 中的 `title`、`type`、`file`、`preview_tagger`、`repkgcollection` 等信息，生成 manifest 并发布以下 API：
@@ -146,32 +136,12 @@ GET  /api/wallpapers/{id}/download
 
 ## macOS 端
 
-macOS 应用位于仓库根目录的 Swift Package：
-
-```text
-Sources/
-Package.swift
-```
-
 目标系统：
 
 - macOS 26+
-- Swift tools version 6.2
-- Swift 5 language mode
 
-### 运行与打包
+### 打包
 
-开发运行：
-
-```bash
-swift run
-```
-
-构建 release：
-
-```bash
-swift build -c release
-```
 
 构建 `.app`：
 
@@ -220,7 +190,7 @@ resources/lib/libdxcompiler.dylib
 - `RePKG` 和 .NET runtime：解包 Wallpaper Engine `.pkg`。
 - `WallpaperPlayer`：播放视频壁纸。
 - `wallpaper-wgpu`、`resources/assets/`、`dxc`、`libdxcompiler.dylib`：实时渲染 scene 壁纸。
-- `ffmpeg`：可选。若系统安装了 Homebrew 版 `ffmpeg`，视频缩略图生成会更稳；没有也可以运行。
+- `ffmpeg`：可选，生成缩略图。
 
 开发时可以用环境变量覆盖默认路径：
 
@@ -258,7 +228,7 @@ export WALLPAPER_WGPU_ASSETS_PATH="/path/to/assets"
 远程卡片状态：
 
 - `未下载`：右键菜单中主要是 `Download`。
-- 已下载：行为接近本地壁纸，可设置壁纸、解包、打开 Finder、编辑元数据等。
+- `已下载`：行为接近本地壁纸，可设置壁纸、解包、打开 Finder、编辑元数据等。
 
 远程下载完成后，应用会在下载目录写入：
 
@@ -318,7 +288,7 @@ iOS Demo 位于：
 Apps/iOSDemo
 ```
 
-当前是一个远程浏览/预览/保存 demo，不会设置 iOS 系统壁纸。这是 iOS 平台限制和当前阶段设计边界。
+当前是一个远程浏览/预览/保存 demo，不会设置 iOS 系统壁纸。
 
 ### 安装和运行
 
@@ -333,7 +303,7 @@ Apps/iOSDemo
 1. 打开工程：
 
 ```bash
-open Apps/iOSDemo/WallpaperGalleryiOSDemo.xcodeproj
+Apps/iOSDemo/WallpaperGalleryiOSDemo.xcodeproj
 ```
 
 2. 在 Xcode 中选择 `WallpaperGalleryiOSDemo` scheme。
@@ -365,7 +335,6 @@ open Apps/iOSDemo/WallpaperGalleryiOSDemo.xcodeproj
 
 - 同一局域网下直接使用 Windows IP。
 - 不在同一网络时使用 Tailscale。
-- Windows Demo 的 `Public static base URL` 保持为空，iOS 会通过 API 的 `/files/...` 端点加载缩略图和媒体。
 
 ## 项目架构
 
@@ -380,96 +349,6 @@ resources/                macOS 运行时资源和渲染资源
 scripts/                  打包脚本
 ```
 
-### macOS 应用架构
-
-macOS 端采用 SwiftUI + MVVM，核心状态集中在 `AppViewModel`：
-
-```text
-Sources/
-├── App.swift
-├── Models/
-│   ├── WallpaperItem.swift
-│   ├── AssetFile.swift
-│   └── RemoteLibraryModels.swift
-├── ViewModels/
-│   ├── AppViewModel.swift
-│   └── SettingsStore.swift
-├── Views/
-│   ├── ContentView.swift
-│   ├── GalleryView.swift
-│   ├── SettingsView.swift
-│   ├── ExtractSheet.swift
-│   ├── AssetPickerSheet.swift
-│   ├── ScenePropertiesSheet.swift
-│   └── NewCollectionSheet.swift
-├── Services/
-│   ├── WallpaperScanner.swift
-│   ├── RemoteLibraryClient.swift
-│   ├── RePKGService.swift
-│   ├── WallpaperService.swift
-│   ├── SceneWallpaperRendererService.swift
-│   ├── SceneWallpaperPropertiesService.swift
-│   └── MetadataService.swift
-└── Utils/
-    ├── ThumbnailCache.swift
-    ├── CGImage+Thumbnail.swift
-    ├── DesignSystem.swift
-    ├── Constants.swift
-    └── PathResolver.swift
-```
-
-关键流程：
-
-- 扫描：`WallpaperScanner` 根据 `Subdir` 或 `Flat` 模式生成 `WallpaperItem`。
-- 缩略图：优先使用预览图；视频可用 AVFoundation 或 `ffmpeg` 生成帧图。
-- 元数据：子目录模式写回 `project.json` 扩展字段；Flat 模式写 `_repkg_meta.json`。
-- 解包：`RePKGService` 包装 RePKG CLI，支持流式日志和 async/await。
-- 图片壁纸：`WallpaperService` 调用 macOS 桌面图片 API。
-- 视频壁纸：启动 `WallpaperPlayer`。
-- scene 壁纸：优先尝试 RePKG 解包，也可通过 `wallpaper-wgpu` 实时渲染。
-- 远程模式：`RemoteLibraryClient` 拉取 manifest 和 ZIP；下载后落地为本地文件夹，再走本地管线。
-
-### Windows Server 架构
-
-```text
-Apps/WindowsServerDemo/wallpaper_server_demo/
-├── streamlit_app.py   # 控制面板
-├── api.py             # FastAPI 路由
-├── library.py         # 扫描、缩略图、manifest、解包逻辑
-├── models.py          # manifest 数据模型
-└── config.py          # server-config.json 读写
-```
-
-职责：
-
-- 扫描 Wallpaper Engine 源目录。
-- 生成 `library.json`。
-- 生成缩略图。
-- 提供 Basic Auth。
-- 提供 `/files/...` 安全文件访问。
-- 提供远程 `.pkg` 解包任务。
-- 提供源文件夹 ZIP 下载给 macOS。
-
-### iOS Demo 架构
-
-```text
-Apps/iOSDemo/WallpaperGalleryiOSDemo/
-├── App/
-├── Models/
-├── Services/
-├── ViewModels/
-├── Views/
-└── Resources/library.json
-```
-
-职责：
-
-- 保存连接设置。
-- 拉取远程 manifest。
-- 展示远程壁纸库。
-- 预览图片/视频。
-- 触发服务端解包。
-- 保存媒体到照片或通过系统分享。
 
 ## 开源组件
 
@@ -478,9 +357,6 @@ Apps/iOSDemo/WallpaperGalleryiOSDemo/
 - [notscuffed/repkg](https://github.com/notscuffed/repkg)：用于解包 Wallpaper Engine `.pkg` 文件。macOS 端内置 arm64 运行时资源，Windows Server 端需要配置 `RePKG.exe`。
 - [jipika/WaifuX](https://github.com/jipika/WaifuX)：用于 Wallpaper Engine scene 渲染相关能力的参考/集成基础，项目中的 `wallpaper-wgpu`、scene 资源和渲染管线围绕该方向工作。
 
-另外，Windows Server Demo 还依赖 FastAPI、Uvicorn、Streamlit、Pillow；视频缩略图可选使用 `ffmpeg`。
-
-请根据各项目许可证要求使用、分发和署名相关组件。
 
 ## 许可证
 

@@ -41,10 +41,15 @@ struct ContentView: View {
 
     private var galleryArea: some View {
         ZStack(alignment: .bottomTrailing) {
+            GalleryAtmosphereBackground(accent: galleryAccent)
+
             VStack(spacing: 0) {
                 if !viewModel.selectedIDs.isEmpty {
                     BatchActionBar()
                         .transition(.move(edge: .top).combined(with: .opacity))
+                        .padding(.horizontal, 14)
+                        .padding(.top, 10)
+                        .padding(.bottom, 6)
                 }
 
                 if viewModel.wallpapers.isEmpty && !viewModel.isScanning {
@@ -62,7 +67,17 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 500)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: viewModel.selectedIDs.isEmpty)
+        .animation(AppMotion.selection, value: viewModel.selectedIDs.isEmpty)
+    }
+
+    private var galleryAccent: Color {
+        if let selected = viewModel.wallpapers.first(where: { viewModel.selectedIDs.contains($0.id) }) {
+            return GalleryTheme.accent(for: selected.type)
+        }
+        if let first = viewModel.filteredWallpapers.first {
+            return GalleryTheme.accent(for: first.type)
+        }
+        return GalleryTheme.violet
     }
 }
 
@@ -89,8 +104,12 @@ private struct RemoteDownloadProgressPanel: View {
         }
         .padding(12)
         .frame(width: 280)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-        .shadow(radius: 12, y: 4)
+        .galleryGlassSurface(
+            in: RoundedRectangle(cornerRadius: 14, style: .continuous),
+            tint: GalleryTheme.cyan,
+            isInteractive: true
+        )
+        .subtleShadow()
     }
 }
 
@@ -233,7 +252,12 @@ private struct BatchActionBar: View {
             Spacer()
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
-        .toolbarGlass().subtleShadow()
+        .galleryGlassSurface(
+            in: RoundedRectangle(cornerRadius: 14, style: .continuous),
+            tint: .accentColor,
+            isInteractive: true
+        )
+        .subtleShadow()
         .confirmationDialog(L10n.t("Delete Selected Wallpapers?", settings.appLanguage), isPresented: $isConfirmingDelete) {
             Button(L10n.t("Delete", settings.appLanguage), role: .destructive) {
                 viewModel.batchDeleteWallpapers()
@@ -262,5 +286,10 @@ private struct EmptyGalleryView: View {
             Button(L10n.t("Open Directory", settings.appLanguage)) { viewModel.selectDirectory() }
                 .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
         }
+        .padding(32)
+        .galleryGlassSurface(
+            in: RoundedRectangle(cornerRadius: 24, style: .continuous),
+            tint: GalleryTheme.violet
+        )
     }
 }
