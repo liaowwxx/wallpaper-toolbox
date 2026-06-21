@@ -112,40 +112,14 @@ struct GalleryAtmosphereBackground: View {
                 endPoint: .bottomTrailing
             )
 
-            Rectangle()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            accent.opacity(0.14),
-                            accent.opacity(0.04),
-                            Color.clear
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-
-            Rectangle()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color.clear,
-                            GalleryTheme.cyan.opacity(0.08),
-                            Color.clear
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-
             LinearGradient(
                 colors: [
-                    Color.white.opacity(0.035),
-                    Color.clear,
-                    Color.black.opacity(0.045)
+                    accent.opacity(0.14),
+                    accent.opacity(0.04),
+                    Color.clear
                 ],
-                startPoint: .top,
-                endPoint: .bottom
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
             )
         }
         .ignoresSafeArea()
@@ -166,8 +140,7 @@ struct SubtleShadow: ViewModifier {
 struct CardShadow: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .shadow(color: .black.opacity(0.18), radius: 12, y: 6)
-            .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
+            .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
     }
 }
 

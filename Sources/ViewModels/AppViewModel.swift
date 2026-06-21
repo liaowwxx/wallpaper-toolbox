@@ -434,9 +434,12 @@ final class AppViewModel {
         isScanning = false
         statusText = "\(items.count) wallpapers found"
 
-        let preloadURLs = items.prefix(AppConstants.thumbnailPreloadBatchSize).compactMap(\.thumbnailPath)
+        let preloadRequests = items.prefix(AppConstants.thumbnailPreloadBatchSize).compactMap { item -> ThumbnailView.PreloadRequest? in
+            guard let thumbnailPath = item.thumbnailPath else { return nil }
+            return ThumbnailView.PreloadRequest(url: thumbnailPath, version: item.thumbnailVersion)
+        }
         Task.detached(priority: .background) {
-            await ThumbnailView.preloadBatch(urls: preloadURLs)
+            await ThumbnailView.preloadBatch(preloadRequests)
         }
     }
 

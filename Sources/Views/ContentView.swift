@@ -106,8 +106,7 @@ private struct RemoteDownloadProgressPanel: View {
         .frame(width: 280)
         .galleryGlassSurface(
             in: RoundedRectangle(cornerRadius: 14, style: .continuous),
-            tint: GalleryTheme.cyan,
-            isInteractive: true
+            tint: GalleryTheme.cyan
         )
         .subtleShadow()
     }
@@ -254,8 +253,7 @@ private struct BatchActionBar: View {
         .padding(.horizontal, 12).padding(.vertical, 8)
         .galleryGlassSurface(
             in: RoundedRectangle(cornerRadius: 14, style: .continuous),
-            tint: .accentColor,
-            isInteractive: true
+            tint: .accentColor
         )
         .subtleShadow()
         .confirmationDialog(L10n.t("Delete Selected Wallpapers?", settings.appLanguage), isPresented: $isConfirmingDelete) {

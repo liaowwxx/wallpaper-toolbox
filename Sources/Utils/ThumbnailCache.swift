@@ -20,9 +20,9 @@ final class ThumbnailCache {
         cache.totalCostLimit = AppConstants.thumbnailCacheCostLimit
     }
 
-    func image(for url: URL) -> NSImage? {
+    func image(for url: URL, version: String? = nil) -> NSImage? {
         guard let cached = cache.object(forKey: url as NSURL) else { return nil }
-        let fingerprint = fileFingerprint(for: url)
+        let fingerprint = cacheFingerprint(for: url, version: version)
         guard cached.fingerprint == fingerprint else {
             cache.removeObject(forKey: url as NSURL)
             return nil
@@ -30,10 +30,17 @@ final class ThumbnailCache {
         return cached.image
     }
 
-    func setImage(_ image: NSImage, for url: URL) {
+    func setImage(_ image: NSImage, for url: URL, version: String? = nil) {
         let cost = AppConstants.thumbnailSize * AppConstants.thumbnailSize * 4
-        let cached = CachedThumbnail(image: image, fingerprint: fileFingerprint(for: url))
+        let cached = CachedThumbnail(image: image, fingerprint: cacheFingerprint(for: url, version: version))
         cache.setObject(cached, forKey: url as NSURL, cost: cost)
+    }
+
+    private func cacheFingerprint(for url: URL, version: String?) -> String? {
+        if let version {
+            return "source:\(version)"
+        }
+        return fileFingerprint(for: url).map { "file:\($0)" }
     }
 
     private func fileFingerprint(for url: URL) -> String? {
@@ -82,7 +89,7 @@ struct ThumbnailView: View {
     }
 
     private func load() async {
-        if let cached = ThumbnailCache.shared.image(for: url) { image = cached; return }
+        if let cached = ThumbnailCache.shared.image(for: url, version: version) { image = cached; return }
         image = nil
 
         let options: [CFString: Any] = [
@@ -96,26 +103,31 @@ struct ThumbnailView: View {
               let squared = cgImage.squareCroppedAndResized(to: AppConstants.thumbnailSize) else { return }
 
         let thumb = NSImage(cgImage: squared, size: .zero)
-        ThumbnailCache.shared.setImage(thumb, for: url)
+        ThumbnailCache.shared.setImage(thumb, for: url, version: version)
         guard !Task.isCancelled else { return }
         image = thumb
     }
 
-    static func preloadBatch(urls: [URL]) async {
+    struct PreloadRequest: Sendable {
+        let url: URL
+        let version: String?
+    }
+
+    static func preloadBatch(_ requests: [PreloadRequest]) async {
         await withTaskGroup(of: Void.self) { group in
-            for url in urls {
+            for request in requests {
                 group.addTask(priority: .background) {
-                    guard ThumbnailCache.shared.image(for: url) == nil else { return }
+                    guard ThumbnailCache.shared.image(for: request.url, version: request.version) == nil else { return }
                     let options: [CFString: Any] = [
                         kCGImageSourceCreateThumbnailFromImageAlways: true,
                         kCGImageSourceThumbnailMaxPixelSize: 512,
                         kCGImageSourceCreateThumbnailWithTransform: true
                     ]
-                    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+                    guard let source = CGImageSourceCreateWithURL(request.url as CFURL, nil),
                           let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
                           let squared = cg.squareCroppedAndResized(to: AppConstants.thumbnailSize) else { return }
                     let thumb = NSImage(cgImage: squared, size: .zero)
-                    ThumbnailCache.shared.setImage(thumb, for: url)
+                    ThumbnailCache.shared.setImage(thumb, for: request.url, version: request.version)
                 }
             }
         }
