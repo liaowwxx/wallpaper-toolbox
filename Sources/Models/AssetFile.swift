@@ -6,6 +6,7 @@ struct AssetFile: Identifiable, Hashable {
     let name: String
     let size: Int64
     let isVideo: Bool
+    let isWeb: Bool
 
     var formattedSize: String {
         if size < 1024 { return "\(size) B" }
@@ -17,7 +18,8 @@ struct AssetFile: Identifiable, Hashable {
     }
 
     var icon: String {
-        isVideo ? "film" : "photo"
+        if isWeb { return "globe" }
+        return isVideo ? "film" : "photo"
     }
 
     func hash(into hasher: inout Hasher) {
@@ -38,6 +40,7 @@ struct AssetScanner {
         "mp4", "mov", "avi", "mkv", "webm", "m4v",
         "wmv", "flv", "mpg", "mpeg"
     ]
+    static let webExtensions: Set<String> = ["html", "htm"]
 
     static func scan(_ directory: URL) -> [AssetFile] {
         var assets: [AssetFile] = []
@@ -56,17 +59,22 @@ struct AssetScanner {
             let ext = url.pathExtension.lowercased()
             let isVideo = videoExtensions.contains(ext)
             let isImage = imageExtensions.contains(ext)
-            guard isVideo || isImage else { continue }
+            let isWeb = webExtensions.contains(ext)
+            guard isVideo || isImage || isWeb else { continue }
 
             let fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
             assets.append(AssetFile(
                 url: url,
                 name: url.lastPathComponent,
                 size: Int64(fileSize),
-                isVideo: isVideo
+                isVideo: isVideo,
+                isWeb: isWeb
             ))
         }
 
-        return assets.sorted { $0.size > $1.size }
+        return assets.sorted {
+            if $0.isWeb != $1.isWeb { return $0.isWeb }
+            return $0.size > $1.size
+        }
     }
 }

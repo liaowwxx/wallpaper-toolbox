@@ -45,7 +45,9 @@ final class AppViewModel {
     var wallpaperStatus = ""
     var wallpaperForAllScreens = false
     var wallpaperTargetItem: WallpaperItem?
+    var wallpaperPreparedContentURL: URL?
     var currentSceneWallpaperPath: String?
+    var currentWebWallpaperPath: String?
 
     // Settings are now in SettingsStore, injected via environment.
     // These mirrors exist for backward-compatible access within the ViewModel.
@@ -57,6 +59,7 @@ final class AppViewModel {
     private let repkgService = RePKGService()
     private let wallpaperService = WallpaperService()
     private let sceneRendererService = SceneWallpaperRendererService()
+    private let webRendererService = WebWallpaperRendererService()
     private let metadataService = MetadataService.shared
 
     private var wallpaperCacheRoot: URL {
@@ -1323,6 +1326,7 @@ final class AppViewModel {
     func startWallpaperPipeline(_ item: WallpaperItem, allScreens: Bool = false) {
         wallpaperTargetItem = item
         wallpaperForAllScreens = allScreens
+        wallpaperPreparedContentURL = nil
         wallpaperStatus = ""
 
         Task {
@@ -1330,6 +1334,8 @@ final class AppViewModel {
             wallpaperStatus = "Preparing..."
 
             let isScene = item.type.lowercased() == "scene"
+            let isWeb = item.type.lowercased() == "web"
+            let isDirectRenderable = isScene || isWeb
             let scanDir: URL
             var sceneExtractionWarning: String?
 
@@ -1349,7 +1355,7 @@ final class AppViewModel {
                     _ = try await repkgService.runAndWait(arguments: args)
                     scanDir = cacheDir
                 } catch {
-                    if isScene {
+                    if isDirectRenderable {
                         sceneExtractionWarning = error.localizedDescription
                         scanDir = Self.sceneFallbackScanDirectory(for: item, cacheDir: cacheDir)
                     } else {
@@ -1367,9 +1373,10 @@ final class AppViewModel {
             wallpaperStatus = "Scanning for assets..."
             let assets = AssetScanner.scan(scanDir)
             wallpaperAssets = assets
+            wallpaperPreparedContentURL = scanDir
             wallpaperStatus = ""
 
-            if assets.isEmpty && !isScene {
+            if assets.isEmpty && !isDirectRenderable {
                 statusText = "No media files found in extracted output"
                 return
             }
@@ -1382,6 +1389,14 @@ final class AppViewModel {
                     statusText = assets.isEmpty
                         ? "Scene ready — render directly or choose an extracted file"
                         : "\(assets.count) assets found — render scene directly or select one"
+                }
+            } else if isWeb {
+                if let sceneExtractionWarning {
+                    statusText = "Web extraction skipped: \(sceneExtractionWarning)"
+                } else {
+                    statusText = assets.isEmpty
+                        ? "Web wallpaper ready — render directly"
+                        : "\(assets.count) assets found — render web directly or select one"
                 }
             } else {
                 statusText = "\(assets.count) assets found — select one"
@@ -1407,6 +1422,7 @@ final class AppViewModel {
 
         showWallpaperPicker = false
         do {
+            webRendererService.stop()
             WallpaperService.killVideoWallpaper()
             let userProperties = SceneWallpaperPropertiesService.propertiesOverrideJSON(for: item.path)
             try sceneRendererService.setSceneWallpaper(
@@ -1430,6 +1446,38 @@ final class AppViewModel {
             statusText = "Scene render failed: \(error.localizedDescription)"
         }
 
+        wallpaperPreparedContentURL = nil
+        wallpaperTargetItem = nil
+    }
+
+    func finishWebDirectSelection(_ item: WallpaperItem) {
+        guard item.type.lowercased() == "web" else { return }
+
+        showWallpaperPicker = false
+        let contentURL = wallpaperPreparedContentURL ?? item.path
+        do {
+            sceneRendererService.stop()
+            WallpaperService.killVideoWallpaper()
+            try webRendererService.setWebWallpaper(
+                contentURL: contentURL,
+                allScreens: wallpaperForAllScreens
+            )
+            saveLastWebWallpaper(contentURL, isMuted: wallpaperMuted, allScreens: wallpaperForAllScreens)
+            if autoReplaceStaticWithFirstFrame {
+                let allScreens = wallpaperForAllScreens
+                let title = item.title
+                Task {
+                    await replaceStaticWallpaperWithCurrentWebFrame(allScreens: allScreens, title: title)
+                }
+            }
+            statusText = wallpaperForAllScreens
+                ? "Web wallpaper rendering on all screens: \(item.title)"
+                : "Web wallpaper rendering: \(item.title)"
+        } catch {
+            statusText = "Web render failed: \(error.localizedDescription)"
+        }
+
+        wallpaperPreparedContentURL = nil
         wallpaperTargetItem = nil
     }
 
@@ -1447,6 +1495,20 @@ final class AppViewModel {
         }
     }
 
+    private func replaceStaticWallpaperWithCurrentWebFrame(allScreens: Bool, title: String) async {
+        guard let frameURL = await webRendererService.captureFirstFrame() else {
+            statusText = "Web rendering: \(title) (first-frame capture unavailable)"
+            return
+        }
+
+        do {
+            try wallpaperService.setImageWallpaper(filePath: frameURL, allScreens: allScreens)
+            statusText = "Web wallpaper rendering: \(title) (static first frame applied)"
+        } catch {
+            statusText = "Web first-frame wallpaper failed: \(error.localizedDescription)"
+        }
+    }
+
     func finishWallpaperSelection(_ asset: AssetFile) {
         guard wallpaperTargetItem != nil else { return }
 
@@ -1454,9 +1516,15 @@ final class AppViewModel {
 
         do {
             sceneRendererService.stop()
+            webRendererService.stop()
             WallpaperService.killVideoWallpaper()
             if wallpaperForAllScreens {
-                if asset.isVideo {
+                if asset.isWeb {
+                    try webRendererService.setWebWallpaper(
+                        contentURL: asset.url,
+                        allScreens: true
+                    )
+                } else if asset.isVideo {
                     try wallpaperService.setWallpaper(filePath: asset.url, isMuted: wallpaperMuted, allScreens: true)
                     if autoReplaceStaticWithFirstFrame {
                         Task {
@@ -1470,7 +1538,12 @@ final class AppViewModel {
                 }
                 statusText = "Wallpaper set on all screens: \(asset.name)\(wallpaperMuted ? " (muted)" : "")"
             } else {
-                if asset.isVideo {
+                if asset.isWeb {
+                    try webRendererService.setWebWallpaper(
+                        contentURL: asset.url,
+                        allScreens: false
+                    )
+                } else if asset.isVideo {
                     try wallpaperService.setWallpaper(filePath: asset.url, isMuted: wallpaperMuted)
                     if autoReplaceStaticWithFirstFrame {
                         Task {
@@ -1482,15 +1555,20 @@ final class AppViewModel {
                 } else {
                     try wallpaperService.setImageWallpaper(filePath: asset.url)
                 }
-                let kind = asset.isVideo ? " (video\(wallpaperMuted ? ", muted" : ""))" : ""
+                let kind = asset.isWeb ? " (web)" : asset.isVideo ? " (video\(wallpaperMuted ? ", muted" : ""))" : ""
                 statusText = "Wallpaper set: \(asset.name)\(kind)"
             }
 
-            saveLastWallpaper(asset.url, isMuted: wallpaperMuted)
+            if asset.isWeb {
+                saveLastWebWallpaper(asset.url, isMuted: wallpaperMuted, allScreens: wallpaperForAllScreens)
+            } else {
+                saveLastWallpaper(asset.url, isMuted: wallpaperMuted)
+            }
         } catch {
             statusText = "Failed: \(error.localizedDescription)"
         }
 
+        wallpaperPreparedContentURL = nil
         wallpaperTargetItem = nil
     }
 
@@ -1551,6 +1629,7 @@ final class AppViewModel {
         }
 
         do {
+            webRendererService.stop()
             WallpaperService.killVideoWallpaper()
             let isMuted = UserDefaults.standard.bool(forKey: UserDefaultsKey.lastWallpaperMuted)
             let allScreens = UserDefaults.standard.bool(forKey: UserDefaultsKey.lastWallpaperAllScreens)
@@ -1571,13 +1650,21 @@ final class AppViewModel {
     private func setFlatWallpaper(url: URL, allScreens: Bool) {
         do {
             sceneRendererService.stop()
+            webRendererService.stop()
             WallpaperService.killVideoWallpaper()
-            if allScreens {
+            if AssetScanner.webExtensions.contains(url.pathExtension.lowercased()) {
+                try webRendererService.setWebWallpaper(
+                    contentURL: url,
+                    allScreens: allScreens
+                )
+                saveLastWebWallpaper(url, isMuted: wallpaperMuted, allScreens: allScreens)
+            } else if allScreens {
                 try wallpaperService.setWallpaper(filePath: url, isMuted: wallpaperMuted, allScreens: true)
+                saveLastWallpaper(url, isMuted: wallpaperMuted)
             } else {
                 try wallpaperService.setWallpaper(filePath: url, isMuted: wallpaperMuted)
+                saveLastWallpaper(url, isMuted: wallpaperMuted)
             }
-            saveLastWallpaper(url, isMuted: wallpaperMuted)
             statusText = "Wallpaper set: \(url.lastPathComponent)"
         } catch {
             statusText = "Failed: \(error.localizedDescription)"
@@ -1591,6 +1678,7 @@ final class AppViewModel {
     func applyStaticWallpaper(_ fileURL: URL, assetName: String) {
         do {
             sceneRendererService.stop()
+            webRendererService.stop()
             try wallpaperService.setImageWallpaper(filePath: fileURL)
             saveLastWallpaper(fileURL, isMuted: false)
             statusText = "Frame set: \(assetName)"
@@ -1679,17 +1767,32 @@ final class AppViewModel {
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         do {
             let isMuted = UserDefaults.standard.bool(forKey: UserDefaultsKey.lastWallpaperMuted)
-            if UserDefaults.standard.string(forKey: UserDefaultsKey.lastWallpaperKind) == "scene" {
+            let kind = UserDefaults.standard.string(forKey: UserDefaultsKey.lastWallpaperKind)
+            if kind == "scene" {
+                webRendererService.stop()
                 WallpaperService.killVideoWallpaper()
                 let allScreens = UserDefaults.standard.bool(forKey: UserDefaultsKey.lastWallpaperAllScreens)
                 let userProperties = SceneWallpaperPropertiesService.propertiesOverrideJSON(for: url)
                 try sceneRendererService.setSceneWallpaper(projectURL: url, allScreens: allScreens, isMuted: isMuted, userProperties: userProperties)
                 currentSceneWallpaperPath = url.path
+                currentWebWallpaperPath = nil
+            } else if kind == "web" {
+                sceneRendererService.stop()
+                WallpaperService.killVideoWallpaper()
+                let allScreens = UserDefaults.standard.bool(forKey: UserDefaultsKey.lastWallpaperAllScreens)
+                try webRendererService.setWebWallpaper(
+                    contentURL: url,
+                    allScreens: allScreens
+                )
+                currentWebWallpaperPath = url.path
+                currentSceneWallpaperPath = nil
             } else {
                 sceneRendererService.stop()
+                webRendererService.stop()
                 WallpaperService.killVideoWallpaper()
                 try wallpaperService.setWallpaper(filePath: url, isMuted: isMuted)
                 currentSceneWallpaperPath = nil
+                currentWebWallpaperPath = nil
             }
         } catch {
             statusText = "Restore wallpaper failed"
@@ -1702,6 +1805,7 @@ final class AppViewModel {
         UserDefaults.standard.set("media", forKey: UserDefaultsKey.lastWallpaperKind)
         UserDefaults.standard.removeObject(forKey: UserDefaultsKey.lastWallpaperAllScreens)
         currentSceneWallpaperPath = nil
+        currentWebWallpaperPath = nil
     }
 
     private func saveLastSceneWallpaper(_ url: URL, isMuted: Bool, allScreens: Bool) {
@@ -1710,6 +1814,16 @@ final class AppViewModel {
         UserDefaults.standard.set("scene", forKey: UserDefaultsKey.lastWallpaperKind)
         UserDefaults.standard.set(allScreens, forKey: UserDefaultsKey.lastWallpaperAllScreens)
         currentSceneWallpaperPath = url.path
+        currentWebWallpaperPath = nil
+    }
+
+    private func saveLastWebWallpaper(_ url: URL, isMuted: Bool, allScreens: Bool) {
+        UserDefaults.standard.set(url.path, forKey: UserDefaultsKey.lastWallpaper)
+        UserDefaults.standard.set(isMuted, forKey: UserDefaultsKey.lastWallpaperMuted)
+        UserDefaults.standard.set("web", forKey: UserDefaultsKey.lastWallpaperKind)
+        UserDefaults.standard.set(allScreens, forKey: UserDefaultsKey.lastWallpaperAllScreens)
+        currentWebWallpaperPath = url.path
+        currentSceneWallpaperPath = nil
     }
 
     func saveState() {

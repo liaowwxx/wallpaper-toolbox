@@ -69,6 +69,9 @@ struct AssetPickerSheet: View {
     private var isSceneItem: Bool {
         item.type.lowercased() == "scene"
     }
+    private var isWebItem: Bool {
+        item.type.lowercased() == "web"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -92,6 +95,10 @@ struct AssetPickerSheet: View {
                 directSceneOption
                 Divider()
             }
+            if isWebItem {
+                directWebOption
+                Divider()
+            }
 
             if assets.isEmpty {
                 Spacer()
@@ -101,7 +108,7 @@ struct AssetPickerSheet: View {
                         .foregroundStyle(.secondary)
                     Text(L10n.t("No media files found", settings.appLanguage))
                         .foregroundStyle(.secondary)
-                    Text(L10n.t("Extract the wallpaper first to find video/image files.", settings.appLanguage))
+                    Text(L10n.t("Extract the wallpaper first to find video/image/web files.", settings.appLanguage))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -110,7 +117,9 @@ struct AssetPickerSheet: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(assets) { asset in
-                            if asset.isVideo {
+                            if asset.isWeb {
+                                webAssetRow(asset)
+                            } else if asset.isVideo {
                                 videoAssetSection(asset)
                             } else {
                                 imageAssetRow(asset)
@@ -172,6 +181,41 @@ struct AssetPickerSheet: View {
         .accessibilityHint(L10n.t("Set this scene wallpaper through the realtime renderer", settings.appLanguage))
     }
 
+    private var directWebOption: some View {
+        Button {
+            viewModel.finishWebDirectSelection(item)
+            dismiss()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "globe")
+                    .font(.title2)
+                    .foregroundStyle(.tint)
+                    .frame(width: 46, height: 46)
+                    .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(L10n.t("Render Web Directly", settings.appLanguage))
+                        .font(.body.weight(.semibold))
+                    Text(L10n.t("Use WebKit to render this web wallpaper on the desktop.", settings.appLanguage))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Image(systemName: "arrow.right.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.tint)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(L10n.t("Render web directly", settings.appLanguage))
+        .accessibilityHint(L10n.t("Set this web wallpaper through the WebKit renderer", settings.appLanguage))
+    }
+
     // MARK: - Image Asset
 
     private func imageAssetRow(_ asset: AssetFile) -> some View {
@@ -207,6 +251,49 @@ struct AssetPickerSheet: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(asset.name), \(L10n.t(asset.isVideo ? "Video" : "Image", settings.appLanguage)), \(asset.formattedSize)")
+        .accessibilityHint(L10n.t("Double-tap to set as wallpaper", settings.appLanguage))
+        .animation(.easeInOut(duration: 0.15), value: hoveredAsset)
+        .onHover { hovering in
+            hoveredAsset = hovering ? asset.id : nil
+        }
+    }
+
+    // MARK: - Web Asset
+
+    private func webAssetRow(_ asset: AssetFile) -> some View {
+        Button {
+            viewModel.finishWallpaperSelection(asset)
+            dismiss()
+        } label: {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.green.opacity(0.12))
+                    Image(systemName: "globe")
+                        .font(.title)
+                        .foregroundStyle(.green)
+                }
+                .frame(width: 96, height: 64)
+
+                assetInfo(asset)
+
+                Spacer()
+
+                if hoveredAsset == asset.id {
+                    Image(systemName: "arrow.right.circle.fill")
+                        .font(.title2).foregroundStyle(.tint)
+                        .transition(.scale.combined(with: .opacity))
+                }
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            .contentShape(Rectangle())
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(hoveredAsset == asset.id ? Color.accentColor.opacity(0.08) : Color.clear)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(asset.name), \(L10n.t("Web", settings.appLanguage)), \(asset.formattedSize)")
         .accessibilityHint(L10n.t("Double-tap to set as wallpaper", settings.appLanguage))
         .animation(.easeInOut(duration: 0.15), value: hoveredAsset)
         .onHover { hovering in
@@ -298,9 +385,9 @@ struct AssetPickerSheet: View {
             HStack(spacing: 8) {
                 Label(asset.formattedSize, systemImage: "arrow.down.doc")
                     .font(.caption).foregroundStyle(.secondary)
-                Label(L10n.t(asset.isVideo ? "Video" : "Image", settings.appLanguage), systemImage: asset.icon)
+                Label(L10n.t(asset.isWeb ? "Web" : asset.isVideo ? "Video" : "Image", settings.appLanguage), systemImage: asset.icon)
                     .font(.caption)
-                    .foregroundStyle(asset.isVideo ? .purple : .blue)
+                    .foregroundStyle(asset.isWeb ? .green : asset.isVideo ? .purple : .blue)
             }
         }
     }

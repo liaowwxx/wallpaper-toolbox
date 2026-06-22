@@ -51,7 +51,7 @@ final class WallpaperScanner {
             let preview = findPreview(in: entry)
             let pkg = findPKG(in: entry)
 
-            if preview != nil || pkg != nil {
+            if preview != nil || pkg != nil || projectJSON != nil {
                 let item = WallpaperItem(directory: entry, project: projectJSON, preview: preview, pkg: pkg)
                 if let previewPath = preview {
                     thumbnailSources[items.count] = previewPath
@@ -67,9 +67,11 @@ final class WallpaperScanner {
     }
 
     private func scanFlat(root: URL) async -> [WallpaperItem] {
-        let assetExtensions = Set(["jpg", "jpeg", "png", "gif", "bmp", "webp",
-                              "mp4", "mov", "avi", "mkv", "webm", "m4v", "wmv", "flv"])
         let imageExtensions = Set(["jpg", "jpeg", "png", "gif", "bmp", "webp"])
+        let webExtensions = AssetScanner.webExtensions
+        let assetExtensions = imageExtensions
+            .union(["mp4", "mov", "avi", "mkv", "webm", "m4v", "wmv", "flv"])
+            .union(webExtensions)
 
         let flatMeta = metadataService.readFlatMeta(root: root)
         let tempThumbDirectory = root.appendingPathComponent("temp_thumb", isDirectory: true)
@@ -115,7 +117,11 @@ final class WallpaperScanner {
             )
             item.id = itemId
             item.title = filename
-            item.type = imageExtensions.contains(ext) ? "image" : "video"
+            if webExtensions.contains(ext) {
+                item.type = "web"
+            } else {
+                item.type = imageExtensions.contains(ext) ? "image" : "video"
+            }
             item.metadataKey = relativePath
 
             if let meta = flatMeta[relativePath] ?? flatMeta[filename] {
@@ -187,6 +193,9 @@ final class WallpaperScanner {
         let thumbPath = tempThumbDirectory.appendingPathComponent("\(itemId.sanitizedForPath).jpg")
         if checkCache(source: source, thumb: thumbPath) { return thumbPath }
         let ext = source.pathExtension.lowercased()
+        if AssetScanner.webExtensions.contains(ext) {
+            return placeholderThumb(output: thumbPath)
+        }
         if ["mp4", "mov", "avi", "mkv", "webm", "m4v", "wmv", "flv"].contains(ext) {
             return await generateVideoThumbnail(source: source, output: thumbPath)
         } else {
