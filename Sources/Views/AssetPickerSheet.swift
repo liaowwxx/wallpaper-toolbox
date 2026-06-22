@@ -64,8 +64,19 @@ struct AssetPickerSheet: View {
     @State private var hoveredAsset: AssetFile.ID?
     @State private var expandedVideo: AssetFile.ID?
     @State private var playerState = VideoPlayerStateHolder()
+    @State private var sceneBakeFPS = 30.0
+    @State private var sceneBakeDuration = 15.0
+    @State private var isBakingSceneVideo = false
+    @State private var sceneBakeProgress = 0.0
+    @State private var bakedSceneVideoURL: URL?
 
     private let videoSize = CGSize(width: 260, height: 146)
+    private var currentAssets: [AssetFile] {
+        viewModel.wallpaperAssets.isEmpty ? assets : viewModel.wallpaperAssets
+    }
+    private var canExtractPackage: Bool {
+        item.pkgPath != nil
+    }
     private var isSceneItem: Bool {
         item.type.lowercased() == "scene"
     }
@@ -94,13 +105,19 @@ struct AssetPickerSheet: View {
             if isSceneItem {
                 directSceneOption
                 Divider()
+                sceneBakeOption
+                Divider()
             }
             if isWebItem {
                 directWebOption
                 Divider()
             }
+            if canExtractPackage {
+                extractPackageOption
+                Divider()
+            }
 
-            if assets.isEmpty {
+            if currentAssets.isEmpty {
                 Spacer()
                 VStack(spacing: 12) {
                     Image(systemName: "questionmark.folder")
@@ -116,7 +133,7 @@ struct AssetPickerSheet: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(assets) { asset in
+                        ForEach(currentAssets) { asset in
                             if asset.isWeb {
                                 webAssetRow(asset)
                             } else if asset.isVideo {
@@ -133,7 +150,7 @@ struct AssetPickerSheet: View {
             Divider()
 
             HStack {
-                Text(String(format: L10n.t("%d files found", settings.appLanguage), assets.count))
+                Text(String(format: L10n.t("%d files found", settings.appLanguage), currentAssets.count))
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button(L10n.t("Cancel", settings.appLanguage)) { dismiss() }
@@ -141,6 +158,9 @@ struct AssetPickerSheet: View {
             .padding()
         }
         .frame(minWidth: 540, idealWidth: 620, minHeight: 400, idealHeight: 550)
+        .onAppear {
+            bakedSceneVideoURL = viewModel.bakedSceneVideoURL(for: item)
+        }
         .onDisappear {
             playerState.clear()
         }
@@ -179,6 +199,201 @@ struct AssetPickerSheet: View {
         .buttonStyle(.plain)
         .accessibilityLabel(L10n.t("Render scene directly", settings.appLanguage))
         .accessibilityHint(L10n.t("Set this scene wallpaper through the realtime renderer", settings.appLanguage))
+    }
+
+    private var sceneBakeOption: some View {
+        VStack(spacing: 0) {
+            Button {
+                if let bakedSceneVideoURL {
+                    viewModel.finishSceneBakedVideoSelection(item, videoURL: bakedSceneVideoURL)
+                    dismiss()
+                } else {
+                    bakeSceneVideoAndSetWallpaper()
+                }
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: bakedSceneVideoURL == nil ? "film.stack" : "film")
+                        .font(.title2)
+                        .foregroundStyle(.tint)
+                        .frame(width: 46, height: 46)
+                        .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(L10n.t(
+                            bakedSceneVideoURL == nil ? "Render Scene to Video" : "Use Baked Scene Video",
+                            settings.appLanguage
+                        ))
+                        .font(.body.weight(.semibold))
+                        Text(sceneBakeSubtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    if isBakingSceneVideo {
+                        ProgressView(value: sceneBakeProgress)
+                            .frame(width: 44)
+                    } else {
+                        Image(systemName: "arrow.right.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.tint)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(isBakingSceneVideo)
+            .accessibilityLabel(L10n.t(
+                bakedSceneVideoURL == nil ? "Render scene to video" : "Use baked scene video",
+                settings.appLanguage
+            ))
+
+            if bakedSceneVideoURL == nil {
+                sceneBakeControls
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
+            } else {
+                deleteBakedSceneVideoOption
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
+            }
+        }
+    }
+
+    private var sceneBakeSubtitle: String {
+        if let bakedSceneVideoURL {
+            return String(
+                format: L10n.t("Set existing baked video: %@", settings.appLanguage),
+                bakedSceneVideoURL.lastPathComponent
+            )
+        }
+        if isBakingSceneVideo {
+            return String(format: L10n.t("Rendering video... %d%%", settings.appLanguage), Int(sceneBakeProgress * 100))
+        }
+        return String(
+            format: L10n.t("Bake with wallpaper-wgpu at %@, then set it as a video wallpaper.", settings.appLanguage),
+            viewModel.sceneBakeScreenDescription()
+        )
+    }
+
+    private var sceneBakeControls: some View {
+        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+            GridRow {
+                Text(L10n.t("FPS", settings.appLanguage))
+                    .font(.caption)
+                Text("\(Int(sceneBakeFPS))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .frame(width: 44, alignment: .trailing)
+                Slider(value: $sceneBakeFPS, in: 15...60, step: 5)
+                    .disabled(isBakingSceneVideo)
+            }
+            GridRow {
+                Text(L10n.t("Duration", settings.appLanguage))
+                    .font(.caption)
+                Text("\(Int(sceneBakeDuration))s")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .frame(width: 44, alignment: .trailing)
+                Slider(value: $sceneBakeDuration, in: 5...60, step: 5)
+                    .disabled(isBakingSceneVideo)
+            }
+        }
+    }
+
+    private var deleteBakedSceneVideoOption: some View {
+        Button {
+            viewModel.deleteBakedSceneVideo(for: item)
+            bakedSceneVideoURL = nil
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "trash")
+                    .font(.caption.weight(.semibold))
+                Text(L10n.t("Delete Baked Video", settings.appLanguage))
+                    .font(.caption.weight(.semibold))
+                Spacer()
+                Text(L10n.t("Render again with new settings", settings.appLanguage))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .foregroundStyle(.red)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isBakingSceneVideo)
+        .accessibilityLabel(L10n.t("Delete baked video", settings.appLanguage))
+    }
+
+    private var extractPackageOption: some View {
+        Button {
+            viewModel.extractWallpaperAssetsForPicker()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "archivebox")
+                    .font(.title2)
+                    .foregroundStyle(.tint)
+                    .frame(width: 46, height: 46)
+                    .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(L10n.t("Extract and List Media Files", settings.appLanguage))
+                        .font(.body.weight(.semibold))
+                    Text(L10n.t("Unpack this wallpaper package, then show its video, image, and web files.", settings.appLanguage))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if viewModel.isExtracting {
+                    ProgressView()
+                        .scaleEffect(0.75)
+                        .frame(width: 28)
+                } else {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.tint)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(viewModel.isExtracting)
+        .accessibilityLabel(L10n.t("Extract and list media files", settings.appLanguage))
+    }
+
+    private func bakeSceneVideoAndSetWallpaper() {
+        guard !isBakingSceneVideo else { return }
+        isBakingSceneVideo = true
+        sceneBakeProgress = 0
+        Task {
+            let videoURL = await viewModel.bakeSceneVideoForPicker(
+                item: item,
+                fps: Int(sceneBakeFPS),
+                duration: Int(sceneBakeDuration)
+            ) { progress in
+                sceneBakeProgress = max(sceneBakeProgress, min(max(progress, 0), 1))
+            }
+
+            isBakingSceneVideo = false
+            if let videoURL {
+                bakedSceneVideoURL = videoURL
+                viewModel.finishSceneBakedVideoSelection(item, videoURL: videoURL)
+                dismiss()
+            } else {
+                sceneBakeProgress = 0
+            }
+        }
     }
 
     private var directWebOption: some View {

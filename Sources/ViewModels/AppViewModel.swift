@@ -1327,6 +1327,7 @@ final class AppViewModel {
         wallpaperTargetItem = item
         wallpaperForAllScreens = allScreens
         wallpaperPreparedContentURL = nil
+        wallpaperAssets = []
         wallpaperStatus = ""
 
         Task {
@@ -1337,33 +1338,11 @@ final class AppViewModel {
             let isWeb = item.type.lowercased() == "web"
             let isDirectRenderable = isScene || isWeb
             let scanDir: URL
-            var sceneExtractionWarning: String?
 
-            if let pkg = item.pkgPath {
-                wallpaperStatus = "Extracting package..."
-                let cacheDir = wallpaperCacheRoot.appendingPathComponent(item.id.sanitizedForPath)
-                try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
-
-                let args = RePKGService.buildArguments(
-                    inputPath: pkg.path,
-                    outputDir: cacheDir.path,
-                    singleDir: true,
-                    recursive: false,
-                    overwrite: true
-                )
-                do {
-                    _ = try await repkgService.runAndWait(arguments: args)
-                    scanDir = cacheDir
-                } catch {
-                    if isDirectRenderable {
-                        sceneExtractionWarning = error.localizedDescription
-                        scanDir = Self.sceneFallbackScanDirectory(for: item, cacheDir: cacheDir)
-                    } else {
-                        statusText = "Wallpaper extraction failed: \(error.localizedDescription)"
-                        wallpaperStatus = ""
-                        return
-                    }
-                }
+            if item.pkgPath != nil {
+                scanDir = item.isExtracted
+                    ? item.path.appendingPathComponent("extracted")
+                    : item.path
             } else if item.isExtracted {
                 scanDir = item.path.appendingPathComponent("extracted")
             } else {
@@ -1376,45 +1355,101 @@ final class AppViewModel {
             wallpaperPreparedContentURL = scanDir
             wallpaperStatus = ""
 
-            if assets.isEmpty && !isDirectRenderable {
+            if assets.isEmpty && !isDirectRenderable && item.pkgPath == nil {
                 statusText = "No media files found in extracted output"
                 return
             }
 
             showWallpaperPicker = true
             if isScene {
-                if let sceneExtractionWarning {
-                    statusText = "Scene extraction skipped: \(sceneExtractionWarning)"
-                } else {
-                    statusText = assets.isEmpty
-                        ? "Scene ready — render directly or choose an extracted file"
-                        : "\(assets.count) assets found — render scene directly or select one"
-                }
+                statusText = assets.isEmpty
+                    ? "Scene ready — render directly, bake to video, or extract media files"
+                    : "\(assets.count) assets found — render scene directly or select one"
             } else if isWeb {
-                if let sceneExtractionWarning {
-                    statusText = "Web extraction skipped: \(sceneExtractionWarning)"
-                } else {
-                    statusText = assets.isEmpty
-                        ? "Web wallpaper ready — render directly"
-                        : "\(assets.count) assets found — render web directly or select one"
-                }
+                statusText = assets.isEmpty
+                    ? "Web wallpaper ready — render directly or extract media files"
+                    : "\(assets.count) assets found — render web directly or select one"
             } else {
-                statusText = "\(assets.count) assets found — select one"
+                statusText = assets.isEmpty
+                    ? "Extract the wallpaper to list media files"
+                    : "\(assets.count) assets found — select one"
             }
         }
     }
 
-    private static func sceneFallbackScanDirectory(for item: WallpaperItem, cacheDir: URL) -> URL {
-        let fm = FileManager.default
-        let extractedDir = item.path.appendingPathComponent("extracted")
-        let candidates = [cacheDir, extractedDir, item.path].filter { candidate in
-            var isDirectory: ObjCBool = false
-            return fm.fileExists(atPath: candidate.path, isDirectory: &isDirectory) && isDirectory.boolValue
+    func extractWallpaperAssetsForPicker() {
+        guard let item = wallpaperTargetItem, let pkg = item.pkgPath else { return }
+        guard !isExtracting else { return }
+
+        Task {
+            isExtracting = true
+            wallpaperStatus = "Extracting package..."
+            statusText = "Extracting wallpaper: \(item.title)..."
+            let cacheDir = wallpaperCacheRoot.appendingPathComponent(item.id.sanitizedForPath)
+            try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+
+            let args = RePKGService.buildArguments(
+                inputPath: pkg.path,
+                outputDir: cacheDir.path,
+                singleDir: true,
+                recursive: false,
+                overwrite: true
+            )
+
+            do {
+                _ = try await repkgService.runAndWait(arguments: args)
+                wallpaperStatus = "Scanning for assets..."
+                let assets = AssetScanner.scan(cacheDir)
+                wallpaperAssets = assets
+                wallpaperPreparedContentURL = cacheDir
+                statusText = assets.isEmpty
+                    ? "No media files found in extracted output"
+                    : "\(assets.count) assets found — select one"
+            } catch {
+                statusText = "Wallpaper extraction failed: \(error.localizedDescription)"
+            }
+
+            wallpaperStatus = ""
+            isExtracting = false
         }
-        if let directoryWithAssets = candidates.first(where: { !AssetScanner.scan($0).isEmpty }) {
-            return directoryWithAssets
+    }
+
+    func bakedSceneVideoURL(for item: WallpaperItem) -> URL? {
+        guard item.type.lowercased() == "scene" else { return nil }
+        return SceneVideoBakeService.existingBakedVideoURL(for: item)
+    }
+
+    func deleteBakedSceneVideo(for item: WallpaperItem) {
+        guard item.type.lowercased() == "scene" else { return }
+        SceneVideoBakeService.deleteBakedVideo(for: item)
+        statusText = "Deleted baked scene video: \(item.title)"
+    }
+
+    func sceneBakeScreenDescription() -> String {
+        SceneVideoBakeService.currentScreenDescription()
+    }
+
+    func bakeSceneVideoForPicker(
+        item: WallpaperItem,
+        fps: Int,
+        duration: Int,
+        progress: (@MainActor (Double) -> Void)? = nil
+    ) async -> URL? {
+        guard item.type.lowercased() == "scene" else { return nil }
+        do {
+            statusText = "Rendering scene video: \(item.title)..."
+            let url = try await SceneVideoBakeService.bake(
+                item: item,
+                fps: fps,
+                duration: duration,
+                progress: progress
+            )
+            statusText = "Scene video rendered: \(url.lastPathComponent)"
+            return url
+        } catch {
+            statusText = "Scene video render failed: \(error.localizedDescription)"
+            return nil
         }
-        return candidates.last ?? item.path
     }
 
     func finishSceneDirectSelection(_ item: WallpaperItem) {
@@ -1444,6 +1479,31 @@ final class AppViewModel {
                 : "Scene wallpaper rendering: \(item.title)"
         } catch {
             statusText = "Scene render failed: \(error.localizedDescription)"
+        }
+
+        wallpaperPreparedContentURL = nil
+        wallpaperTargetItem = nil
+    }
+
+    func finishSceneBakedVideoSelection(_ item: WallpaperItem, videoURL: URL) {
+        guard item.type.lowercased() == "scene" else { return }
+
+        showWallpaperPicker = false
+        do {
+            sceneRendererService.stop()
+            webRendererService.stop()
+            WallpaperService.killVideoWallpaper()
+            try wallpaperService.setWallpaper(
+                filePath: videoURL,
+                isMuted: wallpaperMuted,
+                allScreens: wallpaperForAllScreens
+            )
+            saveLastWallpaper(videoURL, isMuted: wallpaperMuted)
+            statusText = wallpaperForAllScreens
+                ? "Baked scene video wallpaper set on all screens: \(item.title)"
+                : "Baked scene video wallpaper set: \(item.title)"
+        } catch {
+            statusText = "Baked scene video wallpaper failed: \(error.localizedDescription)"
         }
 
         wallpaperPreparedContentURL = nil
