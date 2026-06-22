@@ -12,6 +12,20 @@ enum LibraryMode: String, CaseIterable {
     }
 }
 
+enum GalleryAccentMode: String, CaseIterable, Identifiable {
+    case automatic
+    case custom
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .automatic: return "Automatic"
+        case .custom: return "Custom"
+        }
+    }
+}
+
 /// Reactive, persistent settings store.
 /// All settings read/write directly to UserDefaults.
 /// Injected via `.environment()` so both the main window and the Settings scene
@@ -20,8 +34,17 @@ enum LibraryMode: String, CaseIterable {
 @MainActor
 final class SettingsStore {
     private let defaults = UserDefaults.standard
+
     var appLanguage: AppLanguage {
         didSet { defaults.set(appLanguage.rawValue, forKey: UserDefaultsKey.appLanguage) }
+    }
+
+    var galleryAccentMode: GalleryAccentMode {
+        didSet { defaults.set(galleryAccentMode.rawValue, forKey: UserDefaultsKey.galleryAccentMode) }
+    }
+
+    var customGalleryAccentHex: String {
+        didSet { defaults.set(customGalleryAccentHex, forKey: UserDefaultsKey.customGalleryAccentHex) }
     }
 
     var effectiveLanguage: AppLanguage {
@@ -31,6 +54,9 @@ final class SettingsStore {
     init() {
         let rawLanguage = defaults.string(forKey: UserDefaultsKey.appLanguage) ?? AppLanguage.system.rawValue
         appLanguage = AppLanguage(rawValue: rawLanguage) ?? .system
+        let rawAccentMode = defaults.string(forKey: UserDefaultsKey.galleryAccentMode) ?? GalleryAccentMode.automatic.rawValue
+        galleryAccentMode = GalleryAccentMode(rawValue: rawAccentMode) ?? .automatic
+        customGalleryAccentHex = defaults.string(forKey: UserDefaultsKey.customGalleryAccentHex) ?? "#705CF2"
     }
 
     // MARK: - General

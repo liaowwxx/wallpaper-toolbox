@@ -71,6 +71,9 @@ struct ContentView: View {
     }
 
     private var galleryAccent: Color {
+        if settings.galleryAccentMode == .custom {
+            return GalleryTheme.color(hex: settings.customGalleryAccentHex) ?? GalleryTheme.violet
+        }
         if let selected = viewModel.wallpapers.first(where: { viewModel.selectedIDs.contains($0.id) }) {
             return GalleryTheme.accent(for: selected.type)
         }

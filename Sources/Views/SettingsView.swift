@@ -330,6 +330,19 @@ private struct WallpaperTab: View {
         Double(NSScreen.screens.map(Self.refreshRate).max() ?? 60)
     }
 
+    private var customAccentColorBinding: Binding<Color> {
+        Binding(
+            get: {
+                GalleryTheme.color(hex: settings.customGalleryAccentHex) ?? GalleryTheme.violet
+            },
+            set: { color in
+                if let hex = GalleryTheme.hexString(for: color) {
+                    settings.customGalleryAccentHex = hex
+                }
+            }
+        )
+    }
+
     var body: some View {
         Form {
             Section {
@@ -351,6 +364,30 @@ private struct WallpaperTab: View {
                 Text(L10n.t("Playback", settings.appLanguage))
             } footer: {
                 Text(L10n.t("Restore reapplies the last wallpaper on launch. Static replacement captures the first video frame as a fallback for spaces and login screen.", settings.appLanguage))
+            }
+
+            Section {
+                Picker(L10n.t("Accent source", settings.appLanguage), selection: Binding(
+                    get: { settings.galleryAccentMode },
+                    set: { settings.galleryAccentMode = $0 }
+                )) {
+                    ForEach(GalleryAccentMode.allCases) { mode in
+                        Text(L10n.t(mode.label, settings.appLanguage)).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                if settings.galleryAccentMode == .custom {
+                    ColorPicker(
+                        L10n.t("Accent color", settings.appLanguage),
+                        selection: customAccentColorBinding,
+                        supportsOpacity: false
+                    )
+                }
+            } header: {
+                Text(L10n.t("Gallery Background", settings.appLanguage))
+            } footer: {
+                Text(L10n.t("Automatic follows the selected wallpaper type. Custom keeps the gallery background on your chosen color.", settings.appLanguage))
             }
 
             Section {

@@ -50,6 +50,8 @@ enum UserDefaultsKey {
 
     // Wallpaper
     static let wallpaperMuted = "wallpaperMuted"
+    static let galleryAccentMode = "galleryAccentMode"
+    static let customGalleryAccentHex = "customGalleryAccentHex"
     static let sceneUpscalingEnabled = "sceneUpscalingEnabled"
     static let sceneUpscalingPercent = "sceneUpscalingPercent"
     static let sceneFPSCap = "sceneFPSCap"
