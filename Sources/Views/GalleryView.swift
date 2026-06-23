@@ -13,6 +13,7 @@ struct GalleryView: View {
 
     var body: some View {
         let remoteAuthorizationHeader = viewModel.remoteAuthorizationHeader
+        let isRemoteOffline = viewModel.isRemoteOffline
 
         ScrollView {
             LazyVGrid(columns: columns, spacing: columnSpacing) {
@@ -22,6 +23,7 @@ struct GalleryView: View {
                         item: item,
                         isSelected: viewModel.selectedIDs.contains(item.id),
                         isDownloaded: isDownloaded,
+                        isRemoteOffline: isRemoteOffline,
                         appLanguage: settings.appLanguage,
                         remoteAuthorizationHeader: remoteAuthorizationHeader,
                         onTap: { viewModel.toggleSelection(item.id) }
@@ -43,6 +45,7 @@ struct WallpaperCard: View, Equatable {
     let item: WallpaperItem
     let isSelected: Bool
     let isDownloaded: Bool
+    let isRemoteOffline: Bool
     let appLanguage: AppLanguage
     let remoteAuthorizationHeader: String?
     let onTap: () -> Void
@@ -64,6 +67,7 @@ struct WallpaperCard: View, Equatable {
             && lhs.item.remoteThumbnailURL == rhs.item.remoteThumbnailURL
             && lhs.isSelected == rhs.isSelected
             && lhs.isDownloaded == rhs.isDownloaded
+            && lhs.isRemoteOffline == rhs.isRemoteOffline
             && lhs.appLanguage == rhs.appLanguage
             && lhs.remoteAuthorizationHeader == rhs.remoteAuthorizationHeader
     }
@@ -73,6 +77,7 @@ struct WallpaperCard: View, Equatable {
             item: item,
             isSelected: isSelected,
             isDownloaded: isDownloaded,
+            isRemoteOffline: isRemoteOffline,
             appLanguage: appLanguage,
             remoteAuthorizationHeader: remoteAuthorizationHeader,
             onTap: onTap
@@ -88,6 +93,7 @@ private struct WallpaperCardInternal: View {
     let item: WallpaperItem
     let isSelected: Bool
     let isDownloaded: Bool
+    let isRemoteOffline: Bool
     let appLanguage: AppLanguage
     let remoteAuthorizationHeader: String?
     let onTap: () -> Void
@@ -98,6 +104,8 @@ private struct WallpaperCardInternal: View {
     var body: some View {
         Button(action: onTap) {
             thumbnailArea
+                .grayscale(shouldDimRemoteThumbnail ? 1 : 0)
+                .saturation(shouldDimRemoteThumbnail ? 0 : 1)
                 .aspectRatio(1, contentMode: .fill)
                 .overlay(alignment: .bottom) { infoOverlay }
                 .overlay(alignment: .topLeading) { typeBadge }
@@ -132,6 +140,10 @@ private struct WallpaperCardInternal: View {
         .accessibilityLabel("\(item.title), \(L10n.wallpaperType(item.type, appLanguage))")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityHint(isSelected ? L10n.t("Press to deselect", appLanguage) : L10n.t("Press to select", appLanguage))
+    }
+
+    private var shouldDimRemoteThumbnail: Bool {
+        item.isRemote && !isDownloaded && isRemoteOffline
     }
 
     private var thumbnailArea: some View {
@@ -244,6 +256,7 @@ private struct WallpaperCardInternal: View {
             Button(L10n.t("Download", appLanguage)) {
                 viewModel.downloadRemoteWallpaper(item)
             }
+            .disabled(viewModel.isRemoteOffline)
         } else {
             Button(L10n.t(needsExtract ? "Set as Wallpaper..." : "Set as Wallpaper", appLanguage)) {
                 viewModel.setAsWallpaper(item)

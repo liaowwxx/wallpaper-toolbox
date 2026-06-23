@@ -9,9 +9,18 @@ struct RemoteDownloadProgress: Identifiable, Equatable {
     var detail: String
 }
 
+enum RemoteConnectionState: Equatable {
+    case disconnected
+    case slow
+    case connected
+}
+
 @Observable
 @MainActor
 final class AppViewModel {
+    private static let remoteHealthInterval: Duration = .seconds(5)
+    private static let remoteSlowSpeedThresholdBytesPerSecond: Double = 500 * 1024
+
     // MARK: - Runtime state
 
     var wallpapers: [WallpaperItem] = []
@@ -26,6 +35,9 @@ final class AppViewModel {
     var statusText = "Ready"
     var isRemoteConnecting = false
     var remoteConnectionStatus = ""
+    var remoteConnectionState: RemoteConnectionState = .disconnected
+    var remoteConnectionDetail = ""
+    var remoteLastSpeedBytesPerSecond: Double?
     var remoteDownloadProgress: RemoteDownloadProgress?
     var remoteDownloadedIDs = Set<String>()
 
@@ -173,6 +185,7 @@ final class AppViewModel {
     @ObservationIgnored private var directoryMonitor: DispatchSourceFileSystemObject?
     @ObservationIgnored private var monitoredDirectory: URL?
     @ObservationIgnored private var directoryRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var remoteHealthTask: Task<Void, Never>?
     @ObservationIgnored private var remoteManifest: RemoteLibraryManifest?
     @ObservationIgnored private var remoteBaseURL: URL?
     @ObservationIgnored private var localSelectedDirectory: URL?
@@ -225,6 +238,15 @@ final class AppViewModel {
         return wallpapers.filter { ids.contains($0.id) }
     }
 
+    var isRemoteOffline: Bool {
+        isRemoteMode && remoteConnectionState == .disconnected
+    }
+
+    var remoteConnectionSpeedText: String? {
+        guard let remoteLastSpeedBytesPerSecond else { return nil }
+        return Self.formattedByteRate(remoteLastSpeedBytesPerSecond)
+    }
+
     var currentSceneWallpaperItem: WallpaperItem? {
         guard let path = currentSceneWallpaperPath else { return nil }
         let url = URL(fileURLWithPath: path)
@@ -251,6 +273,7 @@ final class AppViewModel {
     deinit {
         searchDebounceTask?.cancel()
         directoryRefreshTask?.cancel()
+        remoteHealthTask?.cancel()
         directoryMonitor?.cancel()
         for url in securityScopedURLs {
             url.stopAccessingSecurityScopedResource()
@@ -269,6 +292,12 @@ final class AppViewModel {
         Task {
             guard await panel.begin() == .OK, let url = panel.url else { return }
             libraryMode = .local
+            stopRemoteHealthMonitoring()
+            remoteManifest = nil
+            remoteBaseURL = nil
+            remoteConnectionState = .disconnected
+            remoteConnectionDetail = ""
+            remoteLastSpeedBytesPerSecond = nil
             localSelectedDirectory = url
             selectedDirectory = url
             createSecurityScopedBookmark(for: url, key: UserDefaultsKey.savedDirectoryBookmark)
@@ -312,9 +341,13 @@ final class AppViewModel {
 
     func switchToLocalLibrary() {
         libraryMode = .local
+        stopRemoteHealthMonitoring()
         remoteManifest = nil
         remoteBaseURL = nil
         remoteConnectionStatus = ""
+        remoteConnectionState = .disconnected
+        remoteConnectionDetail = ""
+        remoteLastSpeedBytesPerSecond = nil
         remoteDownloadProgress = nil
         remoteDownloadedIDs = []
         selectedIDs.removeAll()
@@ -339,6 +372,9 @@ final class AppViewModel {
         remoteManifest = nil
         remoteBaseURL = nil
         remoteDownloadProgress = nil
+        remoteConnectionState = .disconnected
+        remoteConnectionDetail = ""
+        remoteLastSpeedBytesPerSecond = nil
         remoteDownloadedIDs = []
         selectedIDs.removeAll()
         selectedDirectory = settings?.remoteDownloadDirectory
@@ -346,6 +382,7 @@ final class AppViewModel {
         wallpaperGeneration += 1
         remoteConnectionStatus = "Remote mode selected"
         statusText = "Remote mode selected. Connect to load the Windows library."
+        startRemoteHealthMonitoring()
     }
 
     func loadInitialLibrary() async {
@@ -359,10 +396,13 @@ final class AppViewModel {
 
     func connectRemoteLibrary() async {
         guard let settings else { return }
+        startRemoteHealthMonitoring()
         let normalizedURLText = normalizeRemoteServerURL(settings.remoteServerURL)
         guard let serverURL = URL(string: normalizedURLText),
               serverURL.scheme != nil,
               serverURL.host != nil else {
+            remoteConnectionState = .disconnected
+            remoteConnectionDetail = RemoteLibraryError.invalidServerURL.localizedDescription
             remoteConnectionStatus = RemoteLibraryError.invalidServerURL.localizedDescription
             statusText = remoteConnectionStatus
             return
@@ -371,10 +411,6 @@ final class AppViewModel {
         isRemoteConnecting = true
         statusText = "Connecting to remote library..."
         remoteConnectionStatus = "Connecting..."
-        wallpapers = []
-        remoteDownloadedIDs = []
-        selectedIDs.removeAll()
-        wallpaperGeneration += 1
         if selectedDirectory != settings.remoteDownloadDirectory {
             localSelectedDirectory = selectedDirectory
         }
@@ -395,14 +431,21 @@ final class AppViewModel {
             let manifest = try await client.fetchManifest()
             remoteManifest = manifest
             remoteBaseURL = manifest.resolvedAPIBaseURL(relativeTo: serverURL) ?? serverURL
+            remoteConnectionState = .connected
+            remoteConnectionDetail = ""
+            remoteLastSpeedBytesPerSecond = nil
             selectedDirectory = settings.remoteDownloadDirectory
             scanMode = .subdir
             await refreshRemoteWallpapers()
             remoteConnectionStatus = "\(manifest.items.count) remote wallpapers loaded"
             statusText = remoteConnectionStatus
         } catch {
+            applyRemoteHealthFailure(error)
             remoteConnectionStatus = "Remote connect failed: \(error.localizedDescription)"
             statusText = remoteConnectionStatus
+            if remoteManifest == nil {
+                await loadRemoteOfflineWallpapers()
+            }
         }
     }
 
@@ -411,10 +454,7 @@ final class AppViewModel {
             if remoteManifest != nil {
                 await refreshRemoteWallpapers(resetFilters: resetFilters)
             } else {
-                wallpapers = []
-                selectedIDs.removeAll()
-                wallpaperGeneration += 1
-                statusText = "Remote mode selected. Connect to load the Windows library."
+                await loadRemoteOfflineWallpapers(resetFilters: resetFilters)
             }
             return
         }
@@ -500,6 +540,10 @@ final class AppViewModel {
 
     private func downloadRemoteWallpaperAsync(_ item: WallpaperItem) async {
         guard item.isRemote, !isRemoteWallpaperDownloaded(item) else { return }
+        guard remoteConnectionState != .disconnected else {
+            statusText = "Remote is disconnected"
+            return
+        }
         guard let settings,
               let remoteID = item.remoteID,
               let manifest = remoteManifest,
@@ -530,13 +574,20 @@ final class AppViewModel {
                 username: settings.remoteUsername,
                 password: settings.remotePassword
             )
-            let archive = try await client.downloadArchive(from: archiveURL) { [weak self] value in
+            let archive = try await client.downloadArchive(from: archiveURL) { [weak self] update in
                 guard let self else { return }
+                if let speed = update.bytesPerSecond {
+                    remoteLastSpeedBytesPerSecond = speed
+                    remoteConnectionState = speed < Self.remoteSlowSpeedThresholdBytesPerSecond ? .slow : .connected
+                    remoteConnectionDetail = ""
+                }
+                let percent = "\(Int((update.progress * 100).rounded()))%"
+                let detail = update.bytesPerSecond.map { "\(percent) · \(Self.formattedByteRate($0))" } ?? percent
                 self.remoteDownloadProgress = RemoteDownloadProgress(
                     id: progressID,
                     title: item.title,
-                    progress: value,
-                    detail: "\(Int((value * 100).rounded()))%"
+                    progress: update.progress,
+                    detail: detail
                 )
             }
             let archiveLayout = try await inspectArchiveLayout(
@@ -573,12 +624,144 @@ final class AppViewModel {
                 root: settings.remoteDownloadDirectory
             )
             remoteDownloadProgress = nil
+            remoteLastSpeedBytesPerSecond = nil
+            remoteConnectionState = .connected
+            remoteConnectionDetail = ""
             await refreshRemoteWallpapers()
             statusText = "Downloaded: \(item.title)"
         } catch {
             remoteDownloadProgress = nil
+            remoteLastSpeedBytesPerSecond = nil
+            await performRemoteHealthCheck()
             statusText = "Download failed: \(error.localizedDescription)"
         }
+    }
+
+    // MARK: - Remote Health
+
+    private func startRemoteHealthMonitoring() {
+        guard remoteHealthTask == nil else { return }
+        remoteHealthTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.performRemoteHealthCheck()
+                do {
+                    try await Task.sleep(for: Self.remoteHealthInterval)
+                } catch {
+                    break
+                }
+            }
+        }
+    }
+
+    private func stopRemoteHealthMonitoring() {
+        remoteHealthTask?.cancel()
+        remoteHealthTask = nil
+    }
+
+    private func performRemoteHealthCheck() async {
+        guard isRemoteMode, !isRemoteConnecting, let settings else { return }
+        let normalizedURLText = normalizeRemoteServerURL(settings.remoteServerURL)
+        guard let serverURL = URL(string: normalizedURLText),
+              serverURL.scheme != nil,
+              serverURL.host != nil else {
+            applyRemoteHealthFailure(RemoteLibraryError.invalidServerURL)
+            return
+        }
+
+        let client = RemoteLibraryClient(
+            baseURL: serverURL,
+            username: settings.remoteUsername,
+            password: settings.remotePassword
+        )
+
+        do {
+            try await client.checkHealth()
+            let shouldReloadRemoteManifest = remoteConnectionState == .disconnected && remoteManifest == nil
+            applyRemoteHealthSuccess()
+            if shouldReloadRemoteManifest {
+                await reloadRemoteLibraryAfterHealthRestore(client: client, serverURL: serverURL)
+            }
+        } catch {
+            applyRemoteHealthFailure(error)
+        }
+    }
+
+    private func reloadRemoteLibraryAfterHealthRestore(client: RemoteLibraryClient, serverURL: URL) async {
+        guard isRemoteMode, remoteManifest == nil, !isRemoteConnecting, let settings else { return }
+        isRemoteConnecting = true
+        defer { isRemoteConnecting = false }
+
+        do {
+            let manifest = try await client.fetchManifest()
+            remoteManifest = manifest
+            remoteBaseURL = manifest.resolvedAPIBaseURL(relativeTo: serverURL) ?? serverURL
+            selectedDirectory = settings.remoteDownloadDirectory
+            scanMode = .subdir
+            await refreshRemoteWallpapers()
+            remoteConnectionStatus = "\(manifest.items.count) remote wallpapers loaded"
+            statusText = remoteConnectionStatus
+        } catch {
+            applyRemoteHealthFailure(error)
+        }
+    }
+
+    private func applyRemoteHealthSuccess() {
+        if let speed = remoteLastSpeedBytesPerSecond,
+           remoteDownloadProgress != nil,
+           speed < Self.remoteSlowSpeedThresholdBytesPerSecond {
+            remoteConnectionState = .slow
+        } else {
+            remoteConnectionState = .connected
+        }
+        remoteConnectionDetail = ""
+        if remoteConnectionStatus.isEmpty
+            || remoteConnectionStatus == "Remote mode selected"
+            || remoteConnectionStatus.hasPrefix("Remote connect failed")
+            || remoteConnectionStatus.hasPrefix("Remote disconnected") {
+            remoteConnectionStatus = "Connected"
+        }
+    }
+
+    private func applyRemoteHealthFailure(_ error: Error) {
+        remoteConnectionState = .disconnected
+        remoteConnectionDetail = error.localizedDescription
+        remoteConnectionStatus = "Remote disconnected: \(error.localizedDescription)"
+    }
+
+    private func loadRemoteOfflineWallpapers(resetFilters: Bool = false) async {
+        guard let settings else { return }
+        let root = settings.remoteDownloadDirectory
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        selectedDirectory = root
+        scanMode = .subdir
+        isScanning = true
+
+        if resetFilters {
+            selectedIDs.removeAll()
+            contentRatingFilter = "Everyone"
+            collectionFilter = nil
+        }
+
+        let items = await scanner.scan(directory: root, mode: .subdir)
+        wallpapers = items
+        remoteDownloadedIDs = []
+        if !resetFilters {
+            selectedIDs.formIntersection(Set(items.map(\.id)))
+        }
+        wallpaperGeneration += 1
+        filterGeneration &+= 1
+        isScanning = false
+        statusText = items.isEmpty
+            ? "Remote unavailable. No saved wallpapers found"
+            : String(format: "%d saved remote wallpapers loaded", items.count)
+    }
+
+    private static func formattedByteRate(_ bytesPerSecond: Double) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = bytesPerSecond >= 1_000_000 ? [.useMB] : [.useKB]
+        formatter.countStyle = .file
+        let text = formatter.string(fromByteCount: Int64(max(0, bytesPerSecond)))
+        return "\(text)/s"
     }
 
     private func registeredOrExpectedFolderName(for record: RemoteWallpaperRecord, registry: [String: String]) -> String {

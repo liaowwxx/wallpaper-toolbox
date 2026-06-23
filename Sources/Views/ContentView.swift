@@ -24,6 +24,13 @@ struct ContentView: View {
         }
         .searchable(text: $viewModel.searchText, placement: .automatic, prompt: Text(L10n.t("Search wallpapers...", settings.appLanguage)))
         .onChange(of: viewModel.searchText) { viewModel.onSearchTextChanged() }
+        .toolbar {
+            if viewModel.isRemoteMode {
+                ToolbarItem(placement: .primaryAction) {
+                    RemoteConnectionStatusPill()
+                }
+            }
+        }
     }
 
     // MARK: - Sidebar
@@ -81,6 +88,82 @@ struct ContentView: View {
             return GalleryTheme.accent(for: first.type)
         }
         return GalleryTheme.violet
+    }
+}
+
+private struct RemoteConnectionStatusPill: View {
+    @Environment(AppViewModel.self) private var viewModel
+    @Environment(SettingsStore.self) private var settings
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: iconName)
+                .font(.caption)
+                .symbolRenderingMode(.hierarchical)
+            Text(L10n.t(titleKey, settings.appLanguage))
+                .font(.caption)
+                .fontWeight(.semibold)
+                .lineLimit(1)
+            if viewModel.remoteConnectionState == .slow,
+               let speedText = viewModel.remoteConnectionSpeedText {
+                Text(speedText)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .lineLimit(1)
+            }
+        }
+        .foregroundStyle(tint)
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
+        .fixedSize(horizontal: true, vertical: false)
+        .help(tooltip)
+        .accessibilityLabel(L10n.t(titleKey, settings.appLanguage))
+        .accessibilityHint(tooltip)
+    }
+
+    private var iconName: String {
+        switch viewModel.remoteConnectionState {
+        case .disconnected:
+            return "wifi.slash"
+        case .slow:
+            return "speedometer"
+        case .connected:
+            return "wifi"
+        }
+    }
+
+    private var titleKey: String {
+        switch viewModel.remoteConnectionState {
+        case .disconnected:
+            return "Disconnected"
+        case .slow:
+            return "Slow connection"
+        case .connected:
+            return "Connected"
+        }
+    }
+
+    private var tint: Color {
+        switch viewModel.remoteConnectionState {
+        case .disconnected:
+            return .red
+        case .slow:
+            return .yellow
+        case .connected:
+            return .green
+        }
+    }
+
+    private var tooltip: String {
+        var parts = [settings.remoteServerURL]
+        if let speedText = viewModel.remoteConnectionSpeedText, viewModel.remoteConnectionState == .slow {
+            parts.append("\(L10n.t("Speed", settings.appLanguage)): \(speedText)")
+        }
+        if !viewModel.remoteConnectionDetail.isEmpty {
+            parts.append(viewModel.remoteConnectionDetail)
+        }
+        return parts.joined(separator: "\n")
     }
 }
 

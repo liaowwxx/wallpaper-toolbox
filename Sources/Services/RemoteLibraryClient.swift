@@ -25,9 +25,20 @@ struct RemoteLibraryClient {
         return manifest
     }
 
+    func checkHealth(timeout: TimeInterval = 3) async throws {
+        let url = baseURL.appending(path: "library.json")
+        var request = URLRequest(url: url, timeoutInterval: timeout)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        applyAuth(to: &request)
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        try validate(response)
+    }
+
     func downloadArchive(
         from url: URL,
-        progress: @escaping @MainActor (Double) -> Void
+        progress: @escaping @MainActor (RemoteDownloadUpdate) -> Void
     ) async throws -> URL {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
@@ -60,17 +71,26 @@ struct RemoteLibraryClient {
     }()
 }
 
+struct RemoteDownloadUpdate: Equatable {
+    var progress: Double
+    var bytesPerSecond: Double?
+}
+
 private final class RemoteArchiveDownloader: NSObject, URLSessionDownloadDelegate {
     private var continuation: CheckedContinuation<URL, Error>?
     private var session: URLSession?
     private var downloadedURL: URL?
-    private var progressHandler: (@MainActor (Double) -> Void)?
+    private var progressHandler: (@MainActor (RemoteDownloadUpdate) -> Void)?
+    private var lastSampleTime: Date?
+    private var lastSampleBytes: Int64 = 0
 
     func download(
         request: URLRequest,
-        progress: @escaping @MainActor (Double) -> Void
+        progress: @escaping @MainActor (RemoteDownloadUpdate) -> Void
     ) async throws -> URL {
         progressHandler = progress
+        lastSampleTime = Date()
+        lastSampleBytes = 0
         return try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
             let configuration = URLSessionConfiguration.default
@@ -90,8 +110,22 @@ private final class RemoteArchiveDownloader: NSObject, URLSessionDownloadDelegat
     ) {
         guard totalBytesExpectedToWrite > 0 else { return }
         let value = min(1, max(0, Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)))
+        let now = Date()
+        var speed: Double?
+        if let lastSampleTime {
+            let elapsed = now.timeIntervalSince(lastSampleTime)
+            if elapsed >= 0.5 {
+                let bytesDelta = max(0, totalBytesWritten - lastSampleBytes)
+                speed = Double(bytesDelta) / elapsed
+                self.lastSampleTime = now
+                lastSampleBytes = totalBytesWritten
+            }
+        } else {
+            lastSampleTime = now
+            lastSampleBytes = totalBytesWritten
+        }
         Task { @MainActor in
-            self.progressHandler?(value)
+            self.progressHandler?(RemoteDownloadUpdate(progress: value, bytesPerSecond: speed))
         }
     }
 
@@ -132,5 +166,7 @@ private final class RemoteArchiveDownloader: NSObject, URLSessionDownloadDelegat
         session?.invalidateAndCancel()
         session = nil
         progressHandler = nil
+        lastSampleTime = nil
+        lastSampleBytes = 0
     }
 }
