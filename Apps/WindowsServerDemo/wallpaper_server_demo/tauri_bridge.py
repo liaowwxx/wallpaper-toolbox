@@ -86,7 +86,7 @@ def apply_api_auth(request: urllib.request.Request, config: ServerConfig) -> Non
 
 
 def output(payload: dict[str, Any]) -> None:
-    json.dump(payload, sys.stdout, ensure_ascii=False)
+    json.dump(payload, sys.stdout)
     sys.stdout.write("\n")
 
 

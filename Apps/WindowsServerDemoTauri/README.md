@@ -11,8 +11,23 @@ The app does not bundle a Python runtime. On launch, use the Python Runtime sect
 Install prerequisites:
 
 - Node.js
-- Rust and Cargo
+- Rust and Cargo (`cargo` must be available in `PATH`)
+- Microsoft C++ Build Tools for the Rust MSVC linker
 - Python installed on the Windows PC
+
+On a fresh Windows install, the fastest setup path is:
+
+```powershell
+winget install --id Rustlang.Rustup -e
+winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+```
+
+After installing Rust, close and reopen PowerShell so the updated `PATH` is loaded, then verify:
+
+```powershell
+cargo --version
+rustc --version
+```
 
 ```powershell
 cd Apps\WindowsServerDemoTauri
@@ -31,6 +46,16 @@ npm run tauri build
 ```
 
 The Windows installer/exe artifacts are written under `src-tauri\target\release\bundle`.
+
+## Troubleshooting
+
+If `npm run tauri build` fails with this error:
+
+```text
+failed to run 'cargo metadata' command ... program not found
+```
+
+Rust/Cargo is not installed or the current terminal has not picked up the Rust `PATH`. Install Rust with `winget install --id Rustlang.Rustup -e`, reopen PowerShell, and confirm `cargo --version` works before running the Tauri build again.
 
 ## Packaging Note
 

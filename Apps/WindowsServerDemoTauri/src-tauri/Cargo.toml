@@ -5,10 +5,6 @@ description = "Desktop control panel for Wallpaper Gallery Windows Server"
 authors = ["Wallpaper Gallery"]
 edition = "2021"
 
-[lib]
-name = "wallpaper_server_tauri_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
-
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

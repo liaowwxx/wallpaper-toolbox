@@ -33,6 +33,10 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Python
+__pycache__/
+*.py[cod]
+
 # Local environment / secrets
 .env
 .env.*
@@ -54,9 +58,6 @@ _repkg_meta.json
 # Generated icon intermediates
 *.iconset/
 
-# Bundled helper binaries/runtime used by wallpaper setup.
-!resources/osx-arm64/
-!resources/osx-arm64/**
-resources/bin/*
-!resources/bin/WallpaperPlayer
-!resources/bin/wallpaper-wgpu
+# External runtime resources. Download/extract resources separately.
+resources/
+resources*.zip

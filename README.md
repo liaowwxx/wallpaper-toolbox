@@ -170,6 +170,15 @@ make dmg
 
 ### macOS 依赖文件
 
+`resources/` 目录不再由 Git 跟踪。构建 macOS 应用前，请先从 GitHub 下载或手动准备资源压缩包，并将其解压到项目根目录，确保最终路径类似：
+
+```text
+WallPaper Gallery/
+├── README.md
+├── Sources/
+└── resources/
+```
+
 打包时需要以下资源存在：
 
 ```text

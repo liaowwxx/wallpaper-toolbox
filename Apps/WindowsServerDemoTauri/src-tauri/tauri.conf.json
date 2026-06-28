@@ -25,8 +25,12 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
-    "icon": [],
+    "targets": [
+      "msi"
+    ],
+    "icon": [
+      "icons/icon.ico"
+    ],
     "resources": {
       "../requirements-tauri.txt": "requirements-tauri.txt",
       "../../WindowsServerDemo/README.md": "WindowsServerDemo/README.md",
