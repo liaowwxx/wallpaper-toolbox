@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import "./styles.css";
 import type { ServerConfig, ProcessState } from "./types";
 
+type AppLanguage = "en" | "zh-CN";
+
 type PythonCandidate = {
   path: string;
   version: string;
@@ -13,7 +15,109 @@ type DependencyCheck = {
   installCommand: string;
 };
 
+const translations = {
+  en: {
+    appTitle: "Windows Server",
+    statusReady: "Ready",
+    configuration: "Configuration",
+    save: "Save",
+    wallpaperRoot: "Wallpaper library root",
+    repkgExecutable: "RePKG executable",
+    ffmpegExecutable: "ffmpeg executable",
+    apiHost: "API host",
+    apiPort: "API port",
+    apiUsername: "API username",
+    apiPassword: "API password",
+    publicApiBaseUrl: "Public API base URL for iOS",
+    service: "Service",
+    generateManifest: "Generate Manifest",
+    startApi: "Start API",
+    stopApi: "Stop API",
+    rescanApi: "Rescan API",
+    apiProcess: "API process",
+    iosSettingsUrl: "iOS Settings URL",
+    pythonRuntime: "Python Runtime",
+    search: "Search",
+    selectPython: "Select Python...",
+    pythonEnvironment: "Python environment",
+    checkDependencies: "Check Dependencies",
+    dependenciesInstalled: "Python dependencies are installed.",
+    missingDependencies: "Missing",
+    runCommand: "Run",
+    choosePythonHint: "Choose a Python environment, then check dependencies.",
+    noPython: "No Python environment found. Install Python, then click Search.",
+    browse: "Browse",
+    configurationSaved: "Configuration saved",
+    manifestGenerated: "Manifest generated",
+    dependenciesChecked: "Python dependencies checked",
+    apiStarted: "API started",
+    apiStopped: "API stopped",
+    apiRescanRequested: "API rescan requested",
+    searchingPython: "Searching Python...",
+    choosePythonEnvironment: "Choose a Python environment",
+    pythonNotFound: "Python was not found",
+    working: "Working...",
+    notStarted: "not started",
+    running: "running",
+    exited: "exited",
+    language: "Language",
+    english: "English",
+    simplifiedChinese: "简体中文",
+  },
+  "zh-CN": {
+    appTitle: "Windows 服务器",
+    statusReady: "就绪",
+    configuration: "配置",
+    save: "保存",
+    wallpaperRoot: "壁纸库根目录",
+    repkgExecutable: "RePKG 可执行文件",
+    ffmpegExecutable: "ffmpeg 可执行文件",
+    apiHost: "API 主机",
+    apiPort: "API 端口",
+    apiUsername: "API 用户名",
+    apiPassword: "API 密码",
+    publicApiBaseUrl: "iOS 使用的公开 API 地址",
+    service: "服务",
+    generateManifest: "生成清单",
+    startApi: "启动 API",
+    stopApi: "停止 API",
+    rescanApi: "重新扫描 API",
+    apiProcess: "API 进程",
+    iosSettingsUrl: "iOS 设置地址",
+    pythonRuntime: "Python 运行时",
+    search: "搜索",
+    selectPython: "选择 Python...",
+    pythonEnvironment: "Python 环境",
+    checkDependencies: "检查依赖",
+    dependenciesInstalled: "Python 依赖已安装。",
+    missingDependencies: "缺少",
+    runCommand: "运行",
+    choosePythonHint: "选择 Python 环境后检查依赖。",
+    noPython: "未找到 Python 环境。请安装 Python，然后点击搜索。",
+    browse: "浏览",
+    configurationSaved: "配置已保存",
+    manifestGenerated: "清单已生成",
+    dependenciesChecked: "Python 依赖检查完成",
+    apiStarted: "API 已启动",
+    apiStopped: "API 已停止",
+    apiRescanRequested: "已请求 API 重新扫描",
+    searchingPython: "正在搜索 Python...",
+    choosePythonEnvironment: "请选择 Python 环境",
+    pythonNotFound: "未找到 Python",
+    working: "正在处理...",
+    notStarted: "未启动",
+    running: "运行中",
+    exited: "已退出",
+    language: "语言",
+    english: "English",
+    simplifiedChinese: "简体中文",
+  },
+} as const;
+
+type TranslationKey = keyof (typeof translations)["en"];
+
 const app = document.querySelector<HTMLDivElement>("#app");
+let appLanguage = loadLanguage();
 
 let config: ServerConfig = {
   python_path: "",
@@ -25,15 +129,10 @@ let config: ServerConfig = {
   api_username: "",
   api_password: "",
   public_api_base_url: "http://localhost:8090",
-  public_static_base_url: "",
-  miniserve_path: "miniserve.exe",
-  miniserve_port: 8080,
-  miniserve_auth: "",
 };
-let statusText = "Ready";
+let statusText: string = t("statusReady");
 let busy = false;
 let apiStatus: ProcessState = { running: false, label: "not started" };
-let miniserveStatus: ProcessState = { running: false, label: "not started" };
 let pythonCandidates: PythonCandidate[] = [];
 let dependencyCheck: DependencyCheck | null = null;
 
@@ -61,50 +160,52 @@ function render() {
       <section class="topbar">
         <div>
           <p class="eyebrow">Wallpaper Gallery</p>
-          <h1>Windows Server</h1>
+          <h1>${t("appTitle")}</h1>
         </div>
-        <div class="status">${escapeHtml(statusText)}</div>
+        <div class="top-actions">
+          <label class="language-field">
+            <span>${t("language")}</span>
+            <select data-language>
+              <option value="en" ${appLanguage === "en" ? "selected" : ""}>${t("english")}</option>
+              <option value="zh-CN" ${appLanguage === "zh-CN" ? "selected" : ""}>${t("simplifiedChinese")}</option>
+            </select>
+          </label>
+          <div class="status">${escapeHtml(statusText)}</div>
+        </div>
       </section>
 
       <section class="grid">
         <form class="panel" id="config-form">
           <div class="panel-heading">
-            <h2>Configuration</h2>
-            <button class="primary" type="submit" ${busy ? "disabled" : ""}>Save</button>
+            <h2>${t("configuration")}</h2>
+            <button class="primary" type="submit" ${busy ? "disabled" : ""}>${t("save")}</button>
           </div>
           ${renderPythonPicker()}
-          ${pathField("Wallpaper library root", "library_root", "D:\\WallpaperLibrary", "folder")}
-          ${pathField("RePKG executable", "repkg_path", "RePKG.exe", "exe")}
-          ${pathField("miniserve executable", "miniserve_path", "miniserve.exe", "exe")}
-          ${pathField("ffmpeg executable", "ffmpeg_path", "ffmpeg.exe", "exe")}
-          <div class="columns three">
-            ${inputField("API host", "api_host")}
-            ${inputField("API port", "api_port", "number")}
-            ${inputField("miniserve port", "miniserve_port", "number")}
+          ${pathField(t("wallpaperRoot"), "library_root", "D:\\WallpaperLibrary", "folder")}
+          ${pathField(t("repkgExecutable"), "repkg_path", "RePKG.exe", "exe")}
+          ${pathField(t("ffmpegExecutable"), "ffmpeg_path", "ffmpeg.exe", "exe")}
+          <div class="columns two">
+            ${inputField(t("apiHost"), "api_host")}
+            ${inputField(t("apiPort"), "api_port", "number")}
           </div>
           <div class="columns two">
-            ${inputField("API username", "api_username")}
-            ${inputField("API password", "api_password", "password")}
+            ${inputField(t("apiUsername"), "api_username")}
+            ${inputField(t("apiPassword"), "api_password", "password")}
           </div>
-          ${inputField("Public API base URL for iOS", "public_api_base_url")}
-          ${inputField("Public static base URL", "public_static_base_url")}
-          ${inputField("miniserve auth user:password", "miniserve_auth")}
+          ${inputField(t("publicApiBaseUrl"), "public_api_base_url")}
         </form>
 
         <aside class="panel service">
-          <h2>Service</h2>
+          <h2>${t("service")}</h2>
           <div class="actions">
-            <button class="primary" data-action="generate" ${busy ? "disabled" : ""}>Generate Manifest</button>
-            <button data-action="start-api" ${busy || apiStatus.running ? "disabled" : ""}>Start API</button>
-            <button data-action="stop-api" ${busy || !apiStatus.running ? "disabled" : ""}>Stop API</button>
-            <button data-action="start-miniserve" ${busy || miniserveStatus.running ? "disabled" : ""}>Start miniserve</button>
-            <button data-action="stop-miniserve" ${busy || !miniserveStatus.running ? "disabled" : ""}>Stop miniserve</button>
-            <button data-action="rescan" ${busy ? "disabled" : ""}>Rescan API</button>
+            <button class="primary" data-action="generate" ${busy ? "disabled" : ""}>${t("generateManifest")}</button>
+            <button data-action="start-api" ${busy || apiStatus.running ? "disabled" : ""}>${t("startApi")}</button>
+            <button data-action="stop-api" ${busy || !apiStatus.running ? "disabled" : ""}>${t("stopApi")}</button>
+            <button data-action="rescan" ${busy ? "disabled" : ""}>${t("rescanApi")}</button>
           </div>
           <dl>
-            <div><dt>API process</dt><dd>${escapeHtml(apiStatus.label)}</dd></div>
-            <div><dt>miniserve</dt><dd>${escapeHtml(miniserveStatus.label)}</dd></div>
-            <div><dt>iOS Settings URL</dt><dd>${escapeHtml(publicApiUrl())}</dd></div>
+            <div><dt>${t("apiProcess")}</dt><dd>${escapeHtml(processLabel(apiStatus))}</dd></div>
+            <div><dt>${t("iosSettingsUrl")}</dt><dd>${escapeHtml(publicApiUrl())}</dd></div>
           </dl>
         </aside>
       </section>
@@ -116,7 +217,7 @@ function render() {
 
 function renderPythonPicker() {
   const options = [
-    `<option value="">Select Python...</option>`,
+    `<option value="">${t("selectPython")}</option>`,
     ...pythonCandidates.map(
       (candidate) =>
         `<option value="${escapeAttribute(candidate.path)}" ${
@@ -126,28 +227,28 @@ function renderPythonPicker() {
   ].join("");
   const dependencyMessage = dependencyCheck
     ? dependencyCheck.ok
-      ? `<p class="hint good">Python dependencies are installed.</p>`
-      : `<p class="hint warn">Missing: ${dependencyCheck.missing
+      ? `<p class="hint good">${t("dependenciesInstalled")}</p>`
+      : `<p class="hint warn">${t("missingDependencies")}: ${dependencyCheck.missing
           .map(escapeHtml)
-          .join(", ")}<br />Run: <code>${escapeHtml(dependencyCheck.installCommand)}</code></p>`
-    : `<p class="hint">Choose a Python environment, then check dependencies.</p>`;
+          .join(", ")}<br />${t("runCommand")}: <code>${escapeHtml(dependencyCheck.installCommand)}</code></p>`
+    : `<p class="hint">${t("choosePythonHint")}</p>`;
 
   return `
     <div class="python-box">
       <div class="panel-heading compact">
-        <h2>Python Runtime</h2>
-        <button type="button" data-action="refresh-python" ${busy ? "disabled" : ""}>Search</button>
+        <h2>${t("pythonRuntime")}</h2>
+        <button type="button" data-action="refresh-python" ${busy ? "disabled" : ""}>${t("search")}</button>
       </div>
       ${
         pythonCandidates.length
           ? `<label class="field">
-              <span>Python environment</span>
+              <span>${t("pythonEnvironment")}</span>
               <select name="python_path">${options}</select>
             </label>`
-          : `<p class="hint warn">No Python environment found. Install Python, then click Search.</p>`
+          : `<p class="hint warn">${t("noPython")}</p>`
       }
       <div class="inline-actions">
-        <button type="button" data-action="check-python" ${busy ? "disabled" : ""}>Check Dependencies</button>
+        <button type="button" data-action="check-python" ${busy ? "disabled" : ""}>${t("checkDependencies")}</button>
       </div>
       ${dependencyMessage}
     </div>
@@ -160,7 +261,7 @@ function pathField(label: string, key: keyof ServerConfig, placeholder: string, 
       <span>${label}</span>
       <div>
         <input name="${key}" value="${escapeAttribute(String(config[key]))}" placeholder="${placeholder}" />
-        <button type="button" data-browse="${key}" data-kind="${kind}">Browse</button>
+        <button type="button" data-browse="${key}" data-kind="${kind}">${t("browse")}</button>
       </div>
     </label>
   `;
@@ -175,12 +276,21 @@ function inputField(label: string, key: keyof ServerConfig, type = "text") {
   `;
 }
 
-
 function wireEvents() {
+  document.querySelector<HTMLSelectElement>("[data-language]")?.addEventListener("change", (event) => {
+    const selected = (event.currentTarget as HTMLSelectElement).value;
+    if (selected === "en" || selected === "zh-CN") {
+      appLanguage = selected;
+      localStorage.setItem("wallpaper-server-language", selected);
+      statusText = t("statusReady");
+      render();
+    }
+  });
+
   document.querySelector<HTMLFormElement>("#config-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     readForm();
-    await run("Configuration saved", () => invoke("save_config", { config }));
+    await run(t("configurationSaved"), () => invoke("save_config", { config }));
   });
 
   document.querySelectorAll<HTMLButtonElement>("[data-browse]").forEach((button) => {
@@ -200,35 +310,28 @@ function wireEvents() {
       readForm();
       const action = button.dataset.action;
       if (action === "generate") {
-        await run("Manifest generated", async () => {
+        await run(t("manifestGenerated"), async () => {
           await invoke("save_config", { config });
           await invoke("generate_manifest");
         });
       }
       if (action === "refresh-python") await refreshPythonCandidates();
       if (action === "check-python") {
-        await run("Python dependencies checked", async () => {
+        await run(t("dependenciesChecked"), async () => {
           dependencyCheck = await invoke<DependencyCheck>("check_python_dependencies", {
             pythonPath: config.python_path,
           });
         });
       }
       if (action === "start-api") {
-        await run("API started", async () => {
+        await run(t("apiStarted"), async () => {
           await invoke("save_config", { config });
           await invoke("start_api_server");
         });
       }
-      if (action === "stop-api") await run("API stopped", () => invoke("stop_api_server"));
-      if (action === "start-miniserve") {
-        await run("miniserve started", async () => {
-          await invoke("save_config", { config });
-          await invoke("start_miniserve");
-        });
-      }
-      if (action === "stop-miniserve") await run("miniserve stopped", () => invoke("stop_miniserve"));
+      if (action === "stop-api") await run(t("apiStopped"), () => invoke("stop_api_server"));
       if (action === "rescan") {
-        await run("API rescan requested", async () => {
+        await run(t("apiRescanRequested"), async () => {
           await invoke("save_config", { config });
           await invoke("rescan_api");
         });
@@ -253,17 +356,13 @@ function readForm() {
     api_username: textValue(data, "api_username"),
     api_password: textValue(data, "api_password"),
     public_api_base_url: textValue(data, "public_api_base_url").replace(/\/+$/, ""),
-    public_static_base_url: textValue(data, "public_static_base_url").replace(/\/+$/, ""),
-    miniserve_path: textValue(data, "miniserve_path") || "miniserve.exe",
-    miniserve_port: numberValue(data, "miniserve_port", 8080),
-    miniserve_auth: textValue(data, "miniserve_auth"),
   };
 }
 
 async function refreshPythonCandidates(showBusy = true) {
   if (showBusy) {
     busy = true;
-    statusText = "Searching Python...";
+    statusText = t("searchingPython");
     render();
   }
   try {
@@ -275,9 +374,9 @@ async function refreshPythonCandidates(showBusy = true) {
       });
     }
     if (!config.python_path && pythonCandidates.length > 1) {
-      statusText = "Choose a Python environment";
+      statusText = t("choosePythonEnvironment");
     } else if (!pythonCandidates.length) {
-      statusText = "Python was not found";
+      statusText = t("pythonNotFound");
     }
   } catch (error) {
     statusText = error instanceof Error ? error.message : String(error);
@@ -289,7 +388,7 @@ async function refreshPythonCandidates(showBusy = true) {
 
 async function run(success: string, work: () => Promise<unknown>) {
   busy = true;
-  statusText = "Working...";
+  statusText = t("working");
   render();
   try {
     await work();
@@ -304,13 +403,29 @@ async function run(success: string, work: () => Promise<unknown>) {
 }
 
 async function refreshProcesses() {
-  const processes = await invoke<{ api: ProcessState; miniserve: ProcessState }>("process_statuses");
+  const processes = await invoke<{ api: ProcessState }>("process_statuses");
   apiStatus = processes.api;
-  miniserveStatus = processes.miniserve;
 }
 
 function publicApiUrl() {
   return config.public_api_base_url || `http://localhost:${config.api_port}`;
+}
+
+function processLabel(state: ProcessState) {
+  if (state.label === "not started") return t("notStarted");
+  if (state.label.startsWith("running")) return `${t("running")} ${state.label.replace("running", "").trim()}`;
+  if (state.label.startsWith("exited")) return `${t("exited")} ${state.label.replace("exited", "").trim()}`;
+  return state.label;
+}
+
+function loadLanguage(): AppLanguage {
+  const saved = localStorage.getItem("wallpaper-server-language");
+  if (saved === "en" || saved === "zh-CN") return saved;
+  return navigator.language.toLowerCase().startsWith("zh") ? "zh-CN" : "en";
+}
+
+function t(key: TranslationKey): string {
+  return translations[appLanguage][key];
 }
 
 function textValue(data: FormData, key: string) {

@@ -31,10 +31,6 @@ struct ServerConfig {
     api_username: String,
     api_password: String,
     public_api_base_url: String,
-    public_static_base_url: String,
-    miniserve_path: String,
-    miniserve_port: u16,
-    miniserve_auth: String,
 }
 
 impl Default for ServerConfig {
@@ -49,10 +45,6 @@ impl Default for ServerConfig {
             api_username: String::new(),
             api_password: String::new(),
             public_api_base_url: "http://localhost:8090".into(),
-            public_static_base_url: String::new(),
-            miniserve_path: "miniserve.exe".into(),
-            miniserve_port: 8080,
-            miniserve_auth: String::new(),
         }
     }
 }
@@ -60,7 +52,6 @@ impl Default for ServerConfig {
 #[derive(Default)]
 struct AppState {
     api_process: Mutex<Option<Child>>,
-    miniserve_process: Mutex<Option<Child>>,
 }
 
 #[derive(Serialize)]
@@ -72,7 +63,6 @@ struct ProcessState {
 #[derive(Serialize)]
 struct ProcessStatuses {
     api: ProcessState,
-    miniserve: ProcessState,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -262,50 +252,10 @@ fn stop_api_server(state: State<AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn start_miniserve(app: AppHandle, state: State<AppState>) -> Result<(), String> {
-    let mut guard = state
-        .miniserve_process
-        .lock()
-        .map_err(|error| error.to_string())?;
-    if child_is_running(guard.as_mut()) {
-        return Ok(());
-    }
-    let config = load_config(app.clone())?;
-    if config.library_root.trim().is_empty() {
-        return Err("Set library root first.".into());
-    }
-
-    let mut command = hidden_command(config.miniserve_path);
-    command
-        .arg("-i")
-        .arg("127.0.0.1")
-        .arg("-p")
-        .arg(config.miniserve_port.to_string())
-        .arg("--qrcode")
-        .arg("--no-symlinks");
-    if !config.miniserve_auth.trim().is_empty() {
-        command.arg("--auth").arg(config.miniserve_auth);
-    }
-    command.arg(config.library_root).current_dir(demo_root(&app)?);
-    *guard = Some(command.spawn().map_err(|error| error.to_string())?);
-    Ok(())
-}
-
-#[tauri::command]
-fn stop_miniserve(state: State<AppState>) -> Result<(), String> {
-    stop_child(&state.miniserve_process)
-}
-
-#[tauri::command]
 fn process_statuses(state: State<AppState>) -> Result<ProcessStatuses, String> {
     let mut api = state.api_process.lock().map_err(|error| error.to_string())?;
-    let mut miniserve = state
-        .miniserve_process
-        .lock()
-        .map_err(|error| error.to_string())?;
     Ok(ProcessStatuses {
         api: process_state(&mut api),
-        miniserve: process_state(&mut miniserve),
     })
 }
 
@@ -460,7 +410,6 @@ fn stop_child(lock: &Mutex<Option<Child>>) -> Result<(), String> {
 
 fn stop_all_children(state: &AppState) {
     let _ = stop_child(&state.api_process);
-    let _ = stop_child(&state.miniserve_process);
 }
 
 fn kill_process_tree(child: &Child) {
@@ -529,8 +478,6 @@ fn main() {
             rescan_api,
             start_api_server,
             stop_api_server,
-            start_miniserve,
-            stop_miniserve,
             process_statuses
         ])
         .run(tauri::generate_context!())
