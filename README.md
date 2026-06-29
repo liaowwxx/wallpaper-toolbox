@@ -165,7 +165,7 @@ make dmg
 生成的 app 通常位于：
 
 ```text
-.build/WallPaper Gallery.app
+release/macos/WallPaper Gallery.app
 ```
 
 ### macOS 依赖文件

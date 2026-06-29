@@ -9,7 +9,7 @@ build:
 	swift build -c release
 
 clean:
-	rm -rf .build *.app *.dmg
+	rm -rf .build release *.app *.dmg
 
 app:
 	bash $(BUILD_SCRIPT)

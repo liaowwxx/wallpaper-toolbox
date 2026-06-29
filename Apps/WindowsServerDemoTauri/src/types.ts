@@ -18,20 +18,3 @@ export type ProcessState = {
   running: boolean;
   label: string;
 };
-
-export type PreviewItem = {
-  id: string;
-  title: string;
-  type: string;
-  thumbnailPath: string;
-  assetCount: number;
-  hasPackage: boolean;
-  isUnpacked: boolean;
-};
-
-export type PreviewResult = {
-  ok: boolean;
-  count: number;
-  manifestPath: string;
-  items: PreviewItem[];
-};

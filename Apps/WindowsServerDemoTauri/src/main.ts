@@ -1,6 +1,6 @@
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import "./styles.css";
-import type { PreviewResult, ServerConfig, ProcessState } from "./types";
+import type { ServerConfig, ProcessState } from "./types";
 
 type PythonCandidate = {
   path: string;
@@ -30,7 +30,6 @@ let config: ServerConfig = {
   miniserve_port: 8080,
   miniserve_auth: "",
 };
-let preview: PreviewResult | null = null;
 let statusText = "Ready";
 let busy = false;
 let apiStatus: ProcessState = { running: false, label: "not started" };
@@ -54,7 +53,6 @@ async function bootstrap() {
   await refreshProcesses();
   await refreshPythonCandidates(false);
   render();
-  void refreshPreview();
 }
 
 function render() {
@@ -109,14 +107,6 @@ function render() {
             <div><dt>iOS Settings URL</dt><dd>${escapeHtml(publicApiUrl())}</dd></div>
           </dl>
         </aside>
-      </section>
-
-      <section class="panel library">
-        <div class="panel-heading">
-          <h2>Library Preview</h2>
-          <button data-action="refresh-preview" ${busy ? "disabled" : ""}>Refresh</button>
-        </div>
-        ${renderPreview()}
       </section>
     </main>
   `;
@@ -185,44 +175,6 @@ function inputField(label: string, key: keyof ServerConfig, type = "text") {
   `;
 }
 
-function renderPreview() {
-  if (!config.library_root) {
-    return `<p class="empty">Choose a wallpaper library folder first.</p>`;
-  }
-  if (!preview) {
-    return `<p class="empty">Preview has not been loaded yet.</p>`;
-  }
-  if (!preview.items.length) {
-    return `<p class="empty">No wallpapers found.</p>`;
-  }
-  return `
-    <p class="summary">${preview.count} wallpapers found · ${escapeHtml(preview.manifestPath || "manifest not generated")}</p>
-    <div class="cards">
-      ${preview.items.map(renderPreviewItem).join("")}
-    </div>
-  `;
-}
-
-function renderPreviewItem(item: PreviewResult["items"][number]) {
-  const thumb = item.thumbnailPath
-    ? `<img src="${convertFileSrc(item.thumbnailPath)}" alt="" />`
-    : `<div class="thumb empty-thumb">No thumbnail</div>`;
-  return `
-    <article class="card">
-      <div class="thumb">${thumb}</div>
-      <div>
-        <h3>${escapeHtml(item.title)}</h3>
-        <p>${escapeHtml(item.id)}</p>
-        <div class="chips">
-          <span>${escapeHtml(item.type)}</span>
-          <span>${item.assetCount} assets</span>
-          <span>${item.hasPackage ? "pkg" : "no pkg"}</span>
-          <span>${item.isUnpacked ? "unpacked" : "packed"}</span>
-        </div>
-      </div>
-    </article>
-  `;
-}
 
 function wireEvents() {
   document.querySelector<HTMLFormElement>("#config-form")?.addEventListener("submit", async (event) => {
@@ -251,7 +203,6 @@ function wireEvents() {
         await run("Manifest generated", async () => {
           await invoke("save_config", { config });
           await invoke("generate_manifest");
-          await refreshPreview(false);
         });
       }
       if (action === "refresh-python") await refreshPythonCandidates();
@@ -282,11 +233,8 @@ function wireEvents() {
           await invoke("rescan_api");
         });
       }
-      if (action === "refresh-preview") {
-        await invoke("save_config", { config });
-        await refreshPreview();
-      }
       await refreshProcesses();
+      render();
     });
   });
 }
@@ -350,24 +298,7 @@ async function run(success: string, work: () => Promise<unknown>) {
     statusText = error instanceof Error ? error.message : String(error);
   } finally {
     busy = false;
-    render();
-  }
-}
-
-async function refreshPreview(showBusy = true) {
-  if (!config.library_root) return;
-  if (showBusy) {
-    busy = true;
-    statusText = "Loading preview...";
-    render();
-  }
-  try {
-    preview = await invoke<PreviewResult>("scan_preview");
-    statusText = "Preview loaded";
-  } catch (error) {
-    statusText = error instanceof Error ? error.message : String(error);
-  } finally {
-    busy = false;
+    await refreshProcesses();
     render();
   }
 }

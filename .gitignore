@@ -23,6 +23,7 @@ Apps/iOSDemo/*.xcodeproj/xcuserdata/
 # macOS
 .DS_Store
 ._*
+release/
 *.app
 *.dmg
 *.pkg

@@ -1,15 +1,23 @@
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
     env,
+    ffi::OsStr,
     fs,
     net::{SocketAddr, UdpSocket},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::Mutex,
 };
-use tauri::{AppHandle, Manager, State};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+use tauri::{AppHandle, Manager, State, WindowEvent};
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -182,7 +190,7 @@ deps = {
 missing = [name for name, module in deps.items() if importlib.util.find_spec(module) is None]
 print(json.dumps({"missing": missing}))
 "#;
-    let output = Command::new(&python_path)
+    let output = hidden_command(&python_path)
         .arg("-c")
         .arg(script)
         .output()
@@ -217,11 +225,6 @@ print(json.dumps({"missing": missing}))
 #[tauri::command]
 fn generate_manifest(app: AppHandle) -> Result<Value, String> {
     run_bridge(&app, "generate-manifest")
-}
-
-#[tauri::command]
-fn scan_preview(app: AppHandle) -> Result<Value, String> {
-    run_bridge(&app, "scan-preview")
 }
 
 #[tauri::command]
@@ -272,7 +275,7 @@ fn start_miniserve(app: AppHandle, state: State<AppState>) -> Result<(), String>
         return Err("Set library root first.".into());
     }
 
-    let mut command = Command::new(config.miniserve_path);
+    let mut command = hidden_command(config.miniserve_path);
     command
         .arg("-i")
         .arg("127.0.0.1")
@@ -301,8 +304,8 @@ fn process_statuses(state: State<AppState>) -> Result<ProcessStatuses, String> {
         .lock()
         .map_err(|error| error.to_string())?;
     Ok(ProcessStatuses {
-        api: process_state(api.as_mut()),
-        miniserve: process_state(miniserve.as_mut()),
+        api: process_state(&mut api),
+        miniserve: process_state(&mut miniserve),
     })
 }
 
@@ -376,7 +379,7 @@ fn python_command(_demo_root: &Path, config: &ServerConfig) -> Result<Command, S
     if config.python_path.trim().is_empty() {
         return Err("Choose a Python environment first.".into());
     }
-    Ok(Command::new(&config.python_path))
+    Ok(hidden_command(&config.python_path))
 }
 
 fn add_python_candidate(candidates: &mut BTreeMap<String, PythonCandidate>, path: PathBuf) {
@@ -390,7 +393,7 @@ fn add_python_candidate(candidates: &mut BTreeMap<String, PythonCandidate>, path
 }
 
 fn python_version(path: &Path) -> Option<String> {
-    let output = Command::new(path).arg("--version").output().ok()?;
+    let output = hidden_command(path).arg("--version").output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -407,7 +410,7 @@ fn python_version(path: &Path) -> Option<String> {
 }
 
 fn discover_py_launcher_paths() -> Vec<PathBuf> {
-    let output = Command::new("py").arg("-0p").output();
+    let output = hidden_command("py").arg("-0p").output();
     let Ok(output) = output else {
         return Vec::new();
     };
@@ -425,6 +428,19 @@ fn discover_py_launcher_paths() -> Vec<PathBuf> {
         .collect()
 }
 
+fn hidden_command<S: AsRef<OsStr>>(program: S) -> Command {
+    let mut command = Command::new(program);
+    hide_command_window(&mut command);
+    command
+}
+
+fn hide_command_window(command: &mut Command) {
+    #[cfg(windows)]
+    {
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+}
+
 fn child_is_running(child: Option<&mut Child>) -> bool {
     child
         .map(|child| child.try_wait().map(|status| status.is_none()).unwrap_or(false))
@@ -434,6 +450,7 @@ fn child_is_running(child: Option<&mut Child>) -> bool {
 fn stop_child(lock: &Mutex<Option<Child>>) -> Result<(), String> {
     let mut guard = lock.lock().map_err(|error| error.to_string())?;
     if let Some(child) = guard.as_mut() {
+        kill_process_tree(child);
         let _ = child.kill();
         let _ = child.wait();
     }
@@ -441,8 +458,28 @@ fn stop_child(lock: &Mutex<Option<Child>>) -> Result<(), String> {
     Ok(())
 }
 
-fn process_state(child: Option<&mut Child>) -> ProcessState {
-    match child {
+fn stop_all_children(state: &AppState) {
+    let _ = stop_child(&state.api_process);
+    let _ = stop_child(&state.miniserve_process);
+}
+
+fn kill_process_tree(child: &Child) {
+    #[cfg(windows)]
+    {
+        let _ = hidden_command("taskkill")
+            .arg("/PID")
+            .arg(child.id().to_string())
+            .arg("/T")
+            .arg("/F")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+}
+
+fn process_state(slot: &mut Option<Child>) -> ProcessState {
+    let mut clear_slot = false;
+    let state = match slot.as_mut() {
         None => ProcessState {
             running: false,
             label: "not started".into(),
@@ -461,12 +498,25 @@ fn process_state(child: Option<&mut Child>) -> ProcessState {
                 label: error.to_string(),
             },
         },
+    };
+    if !state.running && slot.is_some() {
+        clear_slot = true;
     }
+    if clear_slot {
+        *slot = None;
+    }
+    state
 }
 
 fn main() {
     tauri::Builder::default()
         .manage(AppState::default())
+        .on_window_event(|window, event| {
+            if matches!(event, WindowEvent::CloseRequested { .. }) {
+                let state = window.app_handle().state::<AppState>();
+                stop_all_children(&state);
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             load_config,
             save_config,
@@ -476,7 +526,6 @@ fn main() {
             discover_python_environments,
             check_python_dependencies,
             generate_manifest,
-            scan_preview,
             rescan_api,
             start_api_server,
             stop_api_server,

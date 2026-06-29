@@ -42,10 +42,10 @@ After the desktop app opens, choose a Python environment and click `Check Depend
 ```powershell
 cd Apps\WindowsServerDemoTauri
 npm install
-npm run tauri build
+npm run tauri:release
 ```
 
-The Windows installer/exe artifacts are written under `src-tauri\target\release\bundle`.
+The Windows installer artifacts are copied to the repository root under `release\windows-tauri`.
 
 ## Troubleshooting
 
